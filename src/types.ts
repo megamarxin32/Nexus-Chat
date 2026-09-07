@@ -1,0 +1,170 @@
+export type UserStatus = 'online' | 'away' | 'busy' | 'offline';
+
+export interface ConnectedDevice {
+  id: string;
+  name: string;
+  type: 'desktop' | 'mobile' | 'tablet';
+  browser: string;
+  lastActive: string;
+  isCurrent: boolean;
+  ipAddress: string;
+  e2eeKeySynced: boolean;
+}
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  displayName: string;
+  email: string;
+  avatar: string;
+  status: UserStatus;
+  statusMessage?: string;
+  bio: string;
+  phone?: string;
+  qrCodeUrl?: string;
+  e2eeFingerprint: string;
+  joinedDate: string;
+  devices: ConnectedDevice[];
+  isGoogleConnected: boolean;
+  securityPin?: string;
+  twoFactorEnabled?: boolean;
+  requireDeviceApproval?: boolean;
+  loginAlertsEnabled?: boolean;
+  preventDuplicateAccounts?: boolean;
+}
+
+export type AttachmentType = 'image' | 'video' | 'audio' | 'doc';
+
+export interface MessageAttachment {
+  id: string;
+  name: string;
+  type: AttachmentType;
+  url: string;
+  sizeBytes: number;
+  quality: 'original_hd' | 'compressed_lite';
+  mimeType: string;
+  driveFileId?: string;
+}
+
+export interface Message {
+  id: string;
+  chatId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar: string;
+  text: string;
+  timestamp: string;
+  status: 'sending' | 'sent' | 'delivered' | 'read';
+  isE2EE: boolean;
+  integrityHash: string; // SHA-256 integrity checksum
+  attachments?: MessageAttachment[];
+  isSystem?: boolean;
+  replyToId?: string;
+}
+
+export interface Chat {
+  id: string;
+  type: 'direct' | 'group';
+  name: string;
+  avatar: string;
+  members: string[]; // user IDs
+  lastMessage?: Message;
+  unreadCount: number;
+  isPinned?: boolean;
+  e2eeFingerprint: string;
+  meetActiveRoom?: string;
+  topic?: string;
+  createdAt: string;
+  creatorId?: string; // Group creator user ID
+  adminIds?: string[]; // Group admin user IDs
+  description?: string;
+}
+
+export interface CallLog {
+  id: string;
+  chatId?: string;
+  contactName: string;
+  contactAvatar: string;
+  contactUsername?: string;
+  type: 'audio' | 'video';
+  direction: 'incoming' | 'outgoing' | 'missed';
+  timestamp: string;
+  durationSeconds?: number;
+  status?: 'completed' | 'missed' | 'rejected';
+}
+
+export type WorkspaceTool =
+  | 'gmail'
+  | 'calendar'
+  | 'drive'
+  | 'docs'
+  | 'sheets'
+  | 'slides'
+  | 'tasks'
+  | 'chat'
+  | 'forms'
+  | 'keep'
+  | 'meet'
+  | 'maps';
+
+export interface WorkspaceItem {
+  id: string;
+  tool: WorkspaceTool;
+  title: string;
+  subtitle: string;
+  date: string;
+  status?: string;
+  linkUrl?: string;
+  contentSnippet?: string;
+  badge?: string;
+  color?: string;
+}
+
+export type ChatWallpaperType =
+  | 'whatsapp_doodle'
+  | 'telegram_stars'
+  | 'discord_dark'
+  | 'geometric'
+  | 'gradient'
+  | 'solid'
+  | 'custom';
+
+export type BubbleColorType =
+  | 'whatsapp_green'
+  | 'telegram_cyan'
+  | 'discord_blurple'
+  | 'blue'
+  | 'emerald'
+  | 'violet'
+  | 'amber'
+  | 'rose'
+  | 'slate';
+
+export type BubbleStyleType = 'whatsapp' | 'telegram' | 'discord' | 'nexus';
+
+export type AppPresetType = 'whatsapp' | 'telegram' | 'discord' | 'nexus';
+
+export interface ThemeSettings {
+  mode: 'dark' | 'light' | 'oled';
+  colorScheme: 'blue' | 'emerald' | 'violet' | 'amber' | 'slate';
+  fontSize: 'compact' | 'normal' | 'large';
+  wallpaper: ChatWallpaperType;
+  customWallpaperUrl?: string;
+  wallpaperOpacity?: number;
+  chatBubbleColor: BubbleColorType;
+  chatBubbleStyle: BubbleStyleType;
+  sendWithEnter: boolean;
+  appPreset?: AppPresetType;
+  dataSaverEnabled: boolean;
+  autoDownloadMedia: boolean;
+  notificationSounds: boolean;
+  pushNotificationsEnabled: boolean;
+  e2eeAlways: boolean;
+}
+
+export interface DataUsageStats {
+  bytesReceived: number;
+  bytesSent: number;
+  bytesSaved: number;
+  mode: 'ultra-lite' | 'standard';
+}
