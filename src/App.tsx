@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ShieldAlert, Heart } from 'lucide-react';
 import {
   SidebarNav,
   ChatList,
@@ -31,6 +32,7 @@ import {
   CallLog,
 } from './types';
 import { getThemePalette } from './lib/themePresets';
+import { parentalControlManager } from './lib/parentalControl';
 
 const INITIAL_CALL_LOGS: CallLog[] = [
   {
@@ -188,11 +190,12 @@ export default function App() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [showDevicesModal, setShowDevicesModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'chat' | 'system'>('profile');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'chat' | 'system' | 'appearance' | 'security' | 'parental' | 'preferences'>('profile');
   const [showAiModal, setShowAiModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [showSecurityModal, setShowSecurityModal] = useState(false);
+  const [parentalAlertMessage, setParentalAlertMessage] = useState<string | null>(null);
   const [callState, setCallState] = useState<{ isOpen: boolean; isVideo: boolean }>({
     isOpen: false,
     isVideo: false,
@@ -238,6 +241,16 @@ export default function App() {
     }
   }, [settings]);
 
+  // Sync parental control settings with account registry
+  useEffect(() => {
+    if (user) {
+      const synced = parentalControlManager.syncWithRegistry(user);
+      if (synced && JSON.stringify(synced) !== JSON.stringify(user)) {
+        setUser(synced);
+      }
+    }
+  }, []);
+
   // If user has not created an account or logged in, show AuthScreen
   if (!user) {
     return (
@@ -257,6 +270,15 @@ export default function App() {
   // Handle send message with E2EE encryption & data tracking
   const handleSendMessage = async (text: string, attachments?: MessageAttachment[]) => {
     if (!activeChat || !user) return;
+
+    // Check parental restriction if minor user
+    if (user.isMinor && activeChat.type === 'direct') {
+      const contactCheck = parentalControlManager.canContactUser(user, activeChat.name);
+      if (!contactCheck.allowed) {
+        setParentalAlertMessage(contactCheck.reason || 'Contacto no autorizado por el control parental');
+        return;
+      }
+    }
 
     // 1. Calculate and record transfer byte size
     const estimatedPayloadBytes = new TextEncoder().encode(text).length + 48; // E2EE header & IV
@@ -310,6 +332,15 @@ export default function App() {
 
   // Start Call (Meet)
   const handleStartCall = (isVideo: boolean, targetChat?: Chat) => {
+    // Parental control permission check
+    if (user && user.isMinor) {
+      const callCheck = parentalControlManager.canStartCall(user, isVideo);
+      if (!callCheck.allowed) {
+        setParentalAlertMessage(callCheck.reason || 'Llamadas restringidas por el control parental.');
+        return;
+      }
+    }
+
     const currentChat = targetChat || activeChat;
     setCallState({ isOpen: true, isVideo });
 
@@ -500,57 +531,84 @@ export default function App() {
       />
 
       {/* 2. Main Content Split View */}
-      <div className="flex-1 flex overflow-hidden min-w-0">
-        {activeTab === 'workspace' ? (
-          /* Google Workspace Hub View */
-          <WorkspaceHub
-            items={workspaceItems}
-            onAddItem={handleAddWorkspaceItem}
-            onDeleteItem={handleDeleteWorkspaceItem}
-            user={user}
-            onConnectGoogle={() => setUser((u) => (u ? { ...u, isGoogleConnected: true } : null))}
-            themeSettings={settings}
-          />
-        ) : activeTab === 'calls' ? (
-          /* Call History View */
-          <CallHistoryView
-            callLogs={callLogs}
-            chats={chats}
-            currentUser={user}
-            onStartCallWithContact={handleStartCallWithContact}
-            onDeleteCallLog={handleDeleteCallLog}
-            onClearCallLogs={handleClearCallLogs}
-            themeSettings={settings}
-          />
-        ) : (
-          /* Chat Stream & List View */
-          <>
-            <ChatList
-              chats={chats}
-              activeChatId={activeChatId}
-              onSelectChat={(id) => setActiveChatId(id)}
-              onNewChat={() => setShowNewChatModal(true)}
-              filterMode="all"
-              themeSettings={settings}
-            />
-
-            <ChatArea
-              chat={activeChat}
-              messages={currentChatMessages}
-              currentUser={user}
-              onSendMessage={handleSendMessage}
-              onStartCall={handleStartCall}
-              onOpenWorkspaceHub={() => setActiveTab('workspace')}
-              onOpenSecurityModal={() => setShowSecurityModal(true)}
-              onNewChat={() => setShowNewChatModal(true)}
-              onEndMeetRoom={handleEndMeetRoom}
-              onUpdateChat={handleUpdateChat}
-              onDeleteChat={handleDeleteChat}
-              onStartDirectChat={handleAddFriend}
-              themeSettings={settings}
-            />
-          </>
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
+        {/* Minor account supervision banner */}
+        {user.isMinor && (
+          <div className="bg-purple-950/80 border-b border-purple-500/30 px-3 py-1.5 flex items-center justify-between text-xs text-purple-200 shrink-0 backdrop-blur-sm z-10">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse shrink-0" />
+              <span className="font-semibold shrink-0">Protección Familiar:</span>
+              <span className="text-purple-300 truncate text-[11px]">
+                {user.parentalControl?.isSupervised
+                  ? `Supervisada por: ${user.parentalControl.parentName || 'Tutor'}`
+                  : `Tu código para vincularte con tu tutor: ${user.parentalControl?.linkCode || 'FAM-9821'}`}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsTab('parental');
+                setShowSettingsModal(true);
+              }}
+              className="text-[11px] underline text-purple-300 hover:text-white cursor-pointer shrink-0 font-medium ml-2"
+            >
+              Ver detalles
+            </button>
+          </div>
         )}
+
+        <div className="flex-1 flex overflow-hidden min-w-0">
+          {activeTab === 'workspace' ? (
+            /* Google Workspace Hub View */
+            <WorkspaceHub
+              items={workspaceItems}
+              onAddItem={handleAddWorkspaceItem}
+              onDeleteItem={handleDeleteWorkspaceItem}
+              user={user}
+              onConnectGoogle={() => setUser((u) => (u ? { ...u, isGoogleConnected: true } : null))}
+              themeSettings={settings}
+            />
+          ) : activeTab === 'calls' ? (
+            /* Call History View */
+            <CallHistoryView
+              callLogs={callLogs}
+              chats={chats}
+              currentUser={user}
+              onStartCallWithContact={handleStartCallWithContact}
+              onDeleteCallLog={handleDeleteCallLog}
+              onClearCallLogs={handleClearCallLogs}
+              themeSettings={settings}
+            />
+          ) : (
+            /* Chat Stream & List View */
+            <>
+              <ChatList
+                chats={chats}
+                activeChatId={activeChatId}
+                onSelectChat={(id) => setActiveChatId(id)}
+                onNewChat={() => setShowNewChatModal(true)}
+                filterMode="all"
+                themeSettings={settings}
+              />
+
+              <ChatArea
+                chat={activeChat}
+                messages={currentChatMessages}
+                currentUser={user}
+                onSendMessage={handleSendMessage}
+                onStartCall={handleStartCall}
+                onOpenWorkspaceHub={() => setActiveTab('workspace')}
+                onOpenSecurityModal={() => setShowSecurityModal(true)}
+                onNewChat={() => setShowNewChatModal(true)}
+                onEndMeetRoom={handleEndMeetRoom}
+                onUpdateChat={handleUpdateChat}
+                onDeleteChat={handleDeleteChat}
+                onStartDirectChat={handleAddFriend}
+                themeSettings={settings}
+              />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Modals */}
@@ -617,6 +675,33 @@ export default function App() {
         existingChats={chats}
         onSelectExistingChat={(id) => setActiveChatId(id)}
       />
+
+      {/* Parental Restriction Feedback Modal */}
+      {parentalAlertMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-purple-500/40 p-6 shadow-2xl text-center space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-purple-500/20 text-purple-300 flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-6 h-6 text-purple-400" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Aviso de Control Parental</h3>
+              <p className="text-xs text-slate-300 mt-2 leading-relaxed">
+                {parentalAlertMessage}
+              </p>
+            </div>
+            <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-500/20 text-[11px] text-purple-200 text-left">
+              💡 Para habilitar llamadas o añadir contactos permitidos, tu tutor(a) ({user?.parentalControl?.parentName || 'Tutor'}) puede acceder a los ajustes desde su propia cuenta en <b>Configuración &gt; Control Parental</b>.
+            </div>
+            <button
+              type="button"
+              onClick={() => setParentalAlertMessage(null)}
+              className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md cursor-pointer transition-all"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

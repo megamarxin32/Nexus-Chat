@@ -21,6 +21,7 @@ import { UserProfile } from '../types';
 import { loginWithEmail, registerWithEmail, signInWithGoogle } from '../lib/firebaseAuth';
 import { createNewUserProfile, detectCurrentDevice } from '../data/mockData';
 import { accountRegistry, RegisteredAccount } from '../lib/accountRegistry';
+import { createDefaultParentalSettings } from '../lib/parentalControl';
 
 interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
@@ -39,6 +40,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [securityPin, setSecurityPin] = useState('123456');
+  const [isMinorAccount, setIsMinorAccount] = useState(false);
   const [showPin, setShowPin] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -170,6 +172,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     profile.loginAlertsEnabled = true;
     profile.preventDuplicateAccounts = true;
 
+    if (isMinorAccount) {
+      profile.isMinor = true;
+      profile.parentalControl = createDefaultParentalSettings(true);
+    }
+
     // Register into system-wide account registry
     accountRegistry.registerAccount(profile, profile.securityPin, {
       twoFactorEnabled: true,
@@ -189,10 +196,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
     try {
       const res = await signInWithGoogle();
-      const googleUser = res?.user;
-      const gName = googleUser?.displayName || 'Usuario Google';
-      const gEmail = (googleUser?.email || 'usuario@gmail.com').toLowerCase();
-      const gAvatar = googleUser?.photoURL || undefined;
+      if (!res?.user) {
+        throw new Error('No se pudo autenticar con Google. Inténtalo de nuevo.');
+      }
+
+      const googleUser = res.user;
+      const gName = googleUser.displayName || googleUser.email?.split('@')[0] || 'Usuario';
+      const gEmail = (googleUser.email || '').toLowerCase();
+      const gAvatar = googleUser.photoURL || undefined;
 
       // Check if existing account with Google email has 2FA PIN
       const existing = accountRegistry.getAccountByEmail(gEmail);
@@ -218,16 +229,29 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
       onAuthSuccess(profile);
       if (onCloseModal) onCloseModal();
-    } catch (err) {
-      console.warn('Google sign-in local flow fallback:', err);
-      const profile = createNewUserProfile({
-        displayName: 'Usuario Google',
-        email: 'usuario.workspace@gmail.com',
-        isGoogle: true,
-      });
-      accountRegistry.registerAccount(profile, '123456');
-      onAuthSuccess(profile);
-      if (onCloseModal) onCloseModal();
+    } catch (err: any) {
+      console.error('Google sign-in error:', err);
+      if (err?.code === 'auth/popup-closed-by-user') {
+        // User closed popup window, no action needed
+        return;
+      }
+      if (err?.code === 'auth/unauthorized-domain') {
+        const currentDomain = window.location.hostname;
+        setErrorMsg(
+          `El dominio "${currentDomain}" no está autorizado en la configuración de Firebase Auth. Debes agregarlo en Firebase Console > Authentication > Settings > Authorized domains. Mientras tanto, puedes crear tu cuenta o iniciar sesión con correo y contraseña arriba.`
+        );
+        return;
+      }
+      if (err?.code === 'auth/popup-blocked') {
+        setErrorMsg(
+          'Tu navegador bloqueó la ventana emergente de Google. Por favor permite las ventanas emergentes (popups) para este sitio y vuelve a intentarlo.'
+        );
+        return;
+      }
+      setErrorMsg(
+        err?.message ||
+          'Error al iniciar sesión con Google. Verifica tu conexión o ingresa con correo y contraseña.'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -623,6 +647,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 <p className="text-[10px] text-slate-400 mt-1">
                   Se te solicitará este PIN cada vez que inicies sesión desde un nuevo dispositivo o quieras autorizar a alguien.
                 </p>
+              </div>
+            )}
+
+            {/* Parental Control Option for minors under 13 */}
+            {isRegister && (
+              <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-500/30 space-y-1.5">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isMinorAccount}
+                    onChange={(e) => setIsMinorAccount(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-slate-800 border-slate-700 cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-purple-200">
+                    Esta cuenta es para un menor de 13 años (Control Parental)
+                  </span>
+                </label>
+                {isMinorAccount && (
+                  <p className="text-[10px] text-purple-300 leading-relaxed pl-6">
+                    Se activará la protección familiar. Se generará un código único (ej. FAM-XXXX) para que el padre, madre o tutor configure los permisos (videollamadas, contactos permitidos y límites) desde su propia cuenta.
+                  </p>
+                )}
               </div>
             )}
 

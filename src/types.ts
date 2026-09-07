@@ -31,6 +31,37 @@ export interface UserProfile {
   requireDeviceApproval?: boolean;
   loginAlertsEnabled?: boolean;
   preventDuplicateAccounts?: boolean;
+  isMinor?: boolean;
+  parentalControl?: ParentalControlSettings;
+  linkedChildren?: LinkedChildProfile[];
+}
+
+export interface ParentalControlSettings {
+  isMinor: boolean;
+  isSupervised: boolean;
+  parentUserId?: string;
+  parentName?: string;
+  parentEmail?: string;
+  linkCode: string;
+  allowUnknownContacts: boolean;
+  approvedContacts: string[];
+  allowVideoCalls: boolean;
+  allowAiAssistant: boolean;
+  dailyScreenTimeMinutes: number; // 0 = unlimited, 30, 60, 120
+  bedtimeQuietHoursEnabled: boolean; // quiet hours between 21:00 and 07:00
+  filterSensitiveContent: boolean;
+  lastUpdated?: string;
+}
+
+export interface LinkedChildProfile {
+  id: string;
+  displayName: string;
+  username: string;
+  email: string;
+  avatar: string;
+  linkCode: string;
+  linkedAt: string;
+  settings: ParentalControlSettings;
 }
 
 export type AttachmentType = 'image' | 'video' | 'audio' | 'doc';

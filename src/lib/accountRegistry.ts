@@ -1,4 +1,4 @@
-import { UserProfile, ConnectedDevice } from '../types';
+import { UserProfile, ConnectedDevice, ParentalControlSettings, LinkedChildProfile } from '../types';
 import { detectCurrentDevice, generateFingerprint } from '../data/mockData';
 
 export interface RegisteredAccount {
@@ -17,6 +17,9 @@ export interface RegisteredAccount {
   preventDuplicateAccounts: boolean;
   devices: ConnectedDevice[];
   createdAt: string;
+  isMinor?: boolean;
+  parentalControl?: ParentalControlSettings;
+  linkedChildren?: LinkedChildProfile[];
 }
 
 // Initial directory of verified users for testing directory searches
@@ -234,6 +237,9 @@ class AccountRegistry {
       preventDuplicateAccounts: true,
       devices: profile.devices || [detectCurrentDevice()],
       createdAt: profile.joinedDate || 'Hoy',
+      isMinor: profile.isMinor,
+      parentalControl: profile.parentalControl,
+      linkedChildren: profile.linkedChildren,
     };
 
     if (index >= 0) {
@@ -249,6 +255,17 @@ class AccountRegistry {
 
     this.persist();
     return { success: true, account: accountData };
+  }
+
+  /**
+   * Directly update an existing account by ID
+   */
+  public updateAccount(id: string, partial: Partial<RegisteredAccount>): boolean {
+    const idx = this.accounts.findIndex((a) => a.id === id);
+    if (idx === -1) return false;
+    this.accounts[idx] = { ...this.accounts[idx], ...partial };
+    this.persist();
+    return true;
   }
 
   /**

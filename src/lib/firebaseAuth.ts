@@ -18,6 +18,9 @@ export const auth = getAuth(app);
 
 // Configure Google Provider with the approved Workspace scopes
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+});
 
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',

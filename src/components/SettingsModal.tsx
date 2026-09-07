@@ -33,6 +33,8 @@ import {
   LogOut,
   Mail,
   Copy,
+  Users,
+  Heart,
 } from 'lucide-react';
 import {
   ThemeSettings,
@@ -56,8 +58,9 @@ import {
 import { dataSaver } from '../lib/dataSaver';
 import { notificationService } from '../lib/notifications';
 import { accountRegistry } from '../lib/accountRegistry';
+import { ParentalControlView } from './ParentalControlView';
 
-export type SettingsTabKey = 'profile' | 'appearance' | 'security' | 'preferences';
+export type SettingsTabKey = 'profile' | 'appearance' | 'security' | 'parental' | 'preferences';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -67,7 +70,7 @@ interface SettingsModalProps {
   user: UserProfile;
   onUpdateUser: (newUser: UserProfile) => void;
   dataStats: { received: number; sent: number; saved: number };
-  initialTab?: 'profile' | 'chat' | 'system' | 'appearance' | 'security' | 'preferences';
+  initialTab?: 'profile' | 'chat' | 'system' | 'appearance' | 'security' | 'parental' | 'preferences';
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -84,6 +87,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const getNormalizedTab = (tab: string): SettingsTabKey => {
     if (tab === 'chat' || tab === 'appearance') return 'appearance';
     if (tab === 'security') return 'security';
+    if (tab === 'parental') return 'parental';
     if (tab === 'system' || tab === 'preferences') return 'preferences';
     return 'profile';
   };
@@ -295,8 +299,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        {/* LINEAR 4-STEP NAVIGATION BAR */}
-        <div className="grid grid-cols-4 p-1.5 bg-slate-950/70 border-b border-slate-800/90 shrink-0 text-xs font-semibold gap-1">
+        {/* LINEAR 5-STEP NAVIGATION BAR */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 p-1.5 bg-slate-950/70 border-b border-slate-800/90 shrink-0 text-xs font-semibold gap-1">
           <button
             id="tab-btn-profile"
             type="button"
@@ -340,6 +344,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
 
           <button
+            id="tab-btn-parental"
+            type="button"
+            onClick={() => setActiveTab('parental')}
+            className={`flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl transition-all cursor-pointer text-center ${
+              activeTab === 'parental'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+            }`}
+          >
+            <Users className="w-4 h-4 shrink-0" />
+            <span className="truncate">4. Control Parental</span>
+            {(user.isMinor || (user.linkedChildren && user.linkedChildren.length > 0)) && (
+              <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
+            )}
+          </button>
+
+          <button
             id="tab-btn-preferences"
             type="button"
             onClick={() => setActiveTab('preferences')}
@@ -350,7 +371,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             <Zap className="w-4 h-4 shrink-0" />
-            <span className="truncate">4. Datos & Sonido</span>
+            <span className="truncate">5. Datos & Sonido</span>
           </button>
         </div>
 
@@ -1234,6 +1255,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </label>
               </div>
             </div>
+          )}
+
+          {/* TAB 4: CONTROL PARENTAL & SUPERVISIÓN FAMILIAR */}
+          {activeTab === 'parental' && (
+            <ParentalControlView
+              user={user}
+              onUpdateUser={onUpdateUser}
+              onShowToast={showToast}
+            />
           )}
         </div>
       </div>
