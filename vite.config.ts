@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
+export default defineConfig({
+  base: '/Nexus-Chat/', // El nombre exacto de tu repositorio entre barras
+  // ...resto de tu configuración
+});
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
