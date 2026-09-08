@@ -21,6 +21,7 @@ import {
   ChevronDown,
   Briefcase,
   X,
+  ArrowLeft,
 } from 'lucide-react';
 import { Chat, Message, UserProfile, ThemeSettings, MessageAttachment } from '../types';
 import { dataSaver } from '../lib/dataSaver';
@@ -44,6 +45,7 @@ interface ChatAreaProps {
   onDeleteChat?: (chatId: string) => void;
   onStartDirectChat?: (userIdOrEmail: string) => void;
   themeSettings: ThemeSettings;
+  onBack?: () => void;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -60,6 +62,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   onDeleteChat,
   onStartDirectChat,
   themeSettings,
+  onBack,
 }) => {
   const [inputText, setInputText] = useState('');
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
@@ -396,18 +399,31 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       {/* Top Header */}
       <header
         id="chat-header-bar"
-        className="h-16 px-4 md:px-6 flex items-center justify-between border-b relative z-20 shrink-0 backdrop-blur-md transition-colors"
+        className="h-16 px-3 md:px-6 flex items-center justify-between border-b relative z-20 shrink-0 backdrop-blur-md transition-colors"
         style={{
           backgroundColor: palette.chatHeaderBg,
           borderColor: palette.chatHeaderBorder,
         }}
       >
-        <div
-          id="chat-header-info-trigger"
-          onClick={() => setShowChatInfoModal(true)}
-          className="flex items-center gap-3 min-w-0 cursor-pointer group hover:opacity-90 transition-all select-none p-1 rounded-2xl hover:bg-slate-800/30"
-          title={chat.type === 'group' ? 'Toca para ver información y miembros del grupo' : 'Toca para ver información del contacto'}
-        >
+        <div className="flex items-center gap-1 md:gap-3 min-w-0">
+          {onBack && (
+            <button
+              id="btn-back-to-chatlist"
+              onClick={onBack}
+              className="md:hidden p-2 -ml-1 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/60 active:scale-95 transition-all cursor-pointer flex items-center justify-center shrink-0 min-w-[40px] min-h-[40px]"
+              title="Volver a los chats"
+              aria-label="Volver a los chats"
+            >
+              <ArrowLeft className="w-5 h-5 text-slate-200" />
+            </button>
+          )}
+
+          <div
+            id="chat-header-info-trigger"
+            onClick={() => setShowChatInfoModal(true)}
+            className="flex items-center gap-3 min-w-0 cursor-pointer group hover:opacity-90 transition-all select-none p-1 rounded-2xl hover:bg-slate-800/30"
+            title={chat.type === 'group' ? 'Toca para ver información y miembros del grupo' : 'Toca para ver información del contacto'}
+          >
           <div className="relative shrink-0">
             <img
               src={chat.avatar}
@@ -451,6 +467,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 : 'En línea • Toca para ver perfil'}
             </p>
           </div>
+        </div>
         </div>
 
         {/* Action Buttons */}
@@ -1025,7 +1042,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="w-full bg-transparent resize-none outline-none text-sm py-1.5 max-h-28"
+                className="w-full bg-transparent resize-none outline-none text-base md:text-sm py-1.5 max-h-28"
                 style={{
                   color: palette.chatInputText,
                 }}

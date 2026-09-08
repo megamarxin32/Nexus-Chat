@@ -174,7 +174,7 @@ export const ChatList: React.FC<ChatListProps> = ({
       </div>
 
       {/* Chat List Items */}
-      <div className="flex-1 overflow-y-auto px-2 space-y-1">
+      <div className="flex-1 overflow-y-auto px-2 space-y-1 pb-24 md:pb-2">
         {filteredChats.length === 0 ? (
           <div className="text-center py-12 px-4 text-slate-400 text-xs space-y-3">
             <div className="w-10 h-10 rounded-2xl bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mx-auto">

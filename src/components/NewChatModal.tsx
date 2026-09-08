@@ -175,7 +175,44 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
       return;
     }
 
-    // If not found, submit is prevented
+    if (searchResult.type === 'not_found') {
+      const q = searchResult.query.trim();
+      if (!q) return;
+      const cleanUser = q.replace('@', '').toLowerCase();
+      const registered = accountRegistry.registerAccount({
+        username: cleanUser,
+        displayName: q.replace('@', ''),
+        email: q.includes('@') ? q : `${cleanUser}@nexus.chat`,
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(q)}&background=2563eb&color=fff&bold=true`,
+        bio: 'Contacto registrado en Nexus',
+      });
+      const newAcc = registered.account || {
+        id: 'usr_' + Date.now(),
+        displayName: q.replace('@', ''),
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(q)}&background=2563eb&color=fff&bold=true`,
+        bio: 'Contacto verificado',
+      };
+
+      const createdChat: Chat = {
+        id: 'chat_user_' + Date.now(),
+        name: newAcc.displayName,
+        type: 'direct',
+        avatar: newAcc.avatar,
+        topic: newAcc.bio || 'Conversación directa segura',
+        unreadCount: 0,
+        isPinned: false,
+        members: [currentUser.id, newAcc.id],
+        e2eeFingerprint: generateFingerprint(),
+        meetActiveRoom: includeMeet
+          ? `https://meet.google.com/nex-${Math.random().toString(36).substring(2, 6)}-hub`
+          : undefined,
+        createdAt: new Date().toISOString(),
+      };
+
+      onCreateChat(createdChat);
+      onClose();
+      return;
+    }
   };
 
   return (
@@ -417,36 +454,25 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                 </div>
               )}
 
-              {/* ------------------------------------------------------------- */}
-              {/* CASE 3: NOT REGISTERED (BLOCK MESSAGES & SHOW WARNING)       */}
-              {/* ------------------------------------------------------------- */}
+              {/* CASE 3: NEW ACCOUNT DETECTION */}
               {searchResult.type === 'not_found' && (
                 <div
                   id="search-card-not-found"
-                  className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/40 space-y-3"
+                  className="p-4 rounded-2xl bg-blue-950/20 border border-blue-500/30 space-y-3"
                 >
-                  <div className="flex items-center gap-2 text-rose-300 font-bold text-xs">
-                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                    <span>Esta persona aún no tiene cuenta en Nexus</span>
+                  <div className="flex items-center gap-2 text-blue-300 font-bold text-xs">
+                    <Sparkles className="w-4 h-4 text-blue-400 shrink-0" />
+                    <span>Nuevo usuario detectado: {searchResult.query}</span>
                   </div>
 
-                  <p className="text-xs text-rose-200/90 leading-relaxed">
-                    La dirección <strong className="text-white font-mono">{searchResult.query}</strong> no está registrada en el directorio de Nexus.
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Al iniciar la conversación, se generarán automáticamente las claves criptográficas E2EE y se registrará la cuenta en el directorio de Nexus para este usuario.
                   </p>
-
-                  <div className="p-3 rounded-xl bg-slate-900/90 border border-rose-500/20 text-[11px] text-slate-300 space-y-1.5">
-                    <div className="font-semibold text-rose-300 flex items-center gap-1">
-                      <span>⛔ Bloqueo de entrega de mensajes</span>
-                    </div>
-                    <p className="text-slate-400">
-                      Por motivos de seguridad y criptografía E2EE (claves públicas no generadas), <strong>no es posible enviar mensajes</strong> a usuarios sin cuenta oficial.
-                    </p>
-                  </div>
 
                   {/* Invite Action */}
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-[11px] text-slate-400">
-                      ¿Es un colega o amigo?
+                      ¿Quieres compartirle un enlace de invitación?
                     </span>
                     <button
                       type="button"
@@ -461,13 +487,112 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                       ) : (
                         <>
                           <Copy className="w-3.5 h-3.5 text-slate-400" />
-                          <span>Copiar invitación para él</span>
+                          <span>Copiar enlace</span>
                         </>
                       )}
                     </button>
                   </div>
                 </div>
               )}
+
+              {/* Directory of all registered accounts (old chats and new accounts) */}
+              <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Cuentas detectadas en el sistema:
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    Chats activos y nuevos
+                  </span>
+                </div>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {accountRegistry
+                    .getAllAccounts()
+                    .filter((a) => a.id !== currentUser.id)
+                    .map((acc) => {
+                      const existingChat = existingChats.find(
+                        (c) => c.type === 'direct' && c.members.includes(acc.id)
+                      );
+                      return (
+                        <div
+                          key={acc.id}
+                          className="flex items-center justify-between p-2 rounded-xl bg-slate-950/60 border border-slate-800/70 hover:border-slate-700 transition-colors"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="relative shrink-0">
+                              <img
+                                src={acc.avatar}
+                                alt={acc.displayName}
+                                className="w-8 h-8 rounded-full object-cover"
+                              />
+                              <span
+                                className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${
+                                  acc.status === 'online' ? 'bg-emerald-500' : 'bg-slate-500'
+                                }`}
+                              />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-semibold text-slate-200 truncate">
+                                  {acc.displayName}
+                                </p>
+                                {acc.isGoogleConnected && (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-medium shrink-0">
+                                    Google
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-400 truncate">
+                                @{acc.username} • {acc.email}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="shrink-0 ml-2">
+                            {existingChat ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onSelectExistingChat) {
+                                    onSelectExistingChat(existingChat.id);
+                                    onClose();
+                                  }
+                                }}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-blue-300 border border-blue-500/30 transition-colors cursor-pointer flex items-center gap-1"
+                              >
+                                <span>Abrir chat</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newChat: Chat = {
+                                    id: 'chat_user_' + Date.now(),
+                                    name: acc.displayName,
+                                    type: 'direct',
+                                    avatar: acc.avatar,
+                                    topic: acc.bio || 'Conversación directa',
+                                    unreadCount: 0,
+                                    isPinned: false,
+                                    members: [currentUser.id, acc.id],
+                                    e2eeFingerprint: generateFingerprint(),
+                                    createdAt: new Date().toISOString(),
+                                  };
+                                  onCreateChat(newChat);
+                                  onClose();
+                                }}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors cursor-pointer flex items-center gap-1"
+                              >
+                                <Sparkles className="w-3 h-3" />
+                                <span>Chatear</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
             </div>
           ) : (
             /* GROUP CHAT FIELDS */
@@ -559,12 +684,17 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
               </button>
             ) : (
               <button
-                type="button"
-                disabled
-                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-70"
-                title="Debes ingresar un usuario o correo registrado para poder chatear"
+                type="submit"
+                id="btn-create-direct-chat"
+                disabled={!targetUsername.trim()}
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer transition-all ${
+                  targetUsername.trim()
+                    ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/20'
+                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                }`}
               >
-                No se puede enviar mensajes (Sin cuenta)
+                <Sparkles className="w-4 h-4" />
+                <span>Registrar y Chatear</span>
               </button>
             )}
           </div>

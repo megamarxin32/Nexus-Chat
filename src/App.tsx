@@ -17,11 +17,11 @@ import {
   CallHistoryView,
 } from './components';
 import {
-  INITIAL_CHATS,
-  INITIAL_MESSAGES,
   INITIAL_WORKSPACE_ITEMS,
   generateFingerprint,
 } from './data/mockData';
+import { realChatService } from './lib/realChatService';
+import { accountRegistry } from './lib/accountRegistry';
 import {
   UserProfile,
   Chat,
@@ -113,36 +113,17 @@ export default function App() {
     }
   });
 
-  // Chats collection state (clean, no dummy placeholders)
+  // Chats and Messages collection states driven by persistent RealChatService
   const [chats, setChats] = useState<Chat[]>(() => {
-    const saved = localStorage.getItem('nexus_chats');
-    if (!saved) return INITIAL_CHATS;
-    try {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.some((c) => c.id === 'chat_group_core' || c.id === 'chat_valeria')) {
-        localStorage.removeItem('nexus_chats');
-        return [];
-      }
-      return parsed;
-    } catch {
-      return [];
-    }
+    if (!user) return [];
+    const initialized = realChatService.initializeUserChats(user);
+    return initialized.chats;
   });
 
-  // Messages collection state
   const [messages, setMessages] = useState<Record<string, Message[]>>(() => {
-    const saved = localStorage.getItem('nexus_messages');
-    if (!saved) return INITIAL_MESSAGES;
-    try {
-      const parsed = JSON.parse(saved);
-      if (parsed?.chat_group_core || parsed?.chat_valeria) {
-        localStorage.removeItem('nexus_messages');
-        return {};
-      }
-      return parsed;
-    } catch {
-      return {};
-    }
+    if (!user) return {};
+    const initialized = realChatService.initializeUserChats(user);
+    return initialized.messages;
   });
 
   // Workspace items state
@@ -251,6 +232,23 @@ export default function App() {
     }
   }, []);
 
+  // Sync and initialize chats whenever user changes
+  useEffect(() => {
+    if (user) {
+      const initialized = realChatService.initializeUserChats(user);
+      setChats(initialized.chats);
+      setMessages(initialized.messages);
+      // Auto-select first chat only on desktop (screen >= 768px), keep unselected on mobile to land on ChatList
+      if (window.innerWidth >= 768 && initialized.chats.length > 0 && !activeChatId) {
+        setActiveChatId(initialized.chats[0].id);
+      }
+    } else {
+      setChats([]);
+      setMessages({});
+      setActiveChatId('');
+    }
+  }, [user?.id]);
+
   // If user has not created an account or logged in, show AuthScreen
   if (!user) {
     return (
@@ -307,6 +305,9 @@ export default function App() {
       attachments,
     };
 
+    // Save with realChatService
+    realChatService.addMessage(activeChat.id, newMessage);
+
     // Update local messages
     const updatedChatMessages = [...currentChatMessages, newMessage];
     setMessages((prev) => ({
@@ -314,20 +315,32 @@ export default function App() {
       [activeChat.id]: updatedChatMessages,
     }));
 
-    // Update chat last message
+    // Update and persist chat's last message
+    const updatedChat: Chat = {
+      ...activeChat,
+      lastMessage: {
+        ...newMessage,
+        status: 'delivered',
+      },
+    };
+    realChatService.saveChat(updatedChat);
     setChats((prevChats) =>
-      prevChats.map((c) =>
-        c.id === activeChat.id
-          ? {
-              ...c,
-              lastMessage: {
-                ...newMessage,
-                status: 'delivered',
-              },
-            }
-          : c
-      )
+      prevChats.map((c) => (c.id === activeChat.id ? updatedChat : c))
     );
+
+    // Trigger automated realistic response if applicable (e.g., support or teammate reply)
+    realChatService.handleAutomatedReply(activeChat, text, user, (replyMsg) => {
+      if (settings.notificationSounds) {
+        notificationService.playMessageSound('incoming');
+      }
+      setMessages((prev) => ({
+        ...prev,
+        [activeChat.id]: [...(prev[activeChat.id] || []), replyMsg],
+      }));
+      setChats((prevChats) =>
+        prevChats.map((c) => (c.id === activeChat.id ? { ...c, lastMessage: replyMsg } : c))
+      );
+    });
   };
 
   // Start Call (Meet)
@@ -379,79 +392,74 @@ export default function App() {
   };
 
   const handleUpdateChat = (updatedChat: Chat) => {
+    realChatService.saveChat(updatedChat);
     setChats((prev) => prev.map((c) => (c.id === updatedChat.id ? updatedChat : c)));
   };
 
   const handleDeleteChat = (chatId: string) => {
+    realChatService.deleteChat(chatId);
     setChats((prev) => prev.filter((c) => c.id !== chatId));
+    setMessages((prev) => {
+      const copy = { ...prev };
+      delete copy[chatId];
+      return copy;
+    });
     if (activeChatId === chatId) {
-      const remaining = chats.filter((c) => c.id !== chatId);
-      setActiveChatId(remaining[0]?.id || '');
+      setActiveChatId('');
     }
   };
 
-  // Add friend / self contact
+  // Add friend / start chat with account or email
   const handleAddFriend = (friendIdOrEmail: string) => {
     if (!user) return;
-    const clean = friendIdOrEmail.trim().toLowerCase();
+    const clean = friendIdOrEmail.trim();
+    if (!clean) return;
+
     const isSelf =
-      clean === user.email.toLowerCase() ||
-      clean.replace(/^@/, '') === user.username.toLowerCase() ||
-      clean.includes('(tú)');
+      clean.toLowerCase() === user.email.toLowerCase() ||
+      clean.toLowerCase().replace(/^@/, '') === user.username.toLowerCase() ||
+      clean.toLowerCase().includes('(tú)');
 
     if (isSelf) {
-      const existingSelfChat = chats.find(
-        (c) =>
-          c.id === `chat_saved_${user.id}` ||
-          (c.type === 'direct' &&
-            (c.name.toLowerCase().includes('(tú)') ||
-              (c.members.length === 1 && c.members[0] === user.id)))
-      );
-      if (existingSelfChat) {
-        setActiveChatId(existingSelfChat.id);
-        return;
-      }
-
-      const selfChat: Chat = {
-        id: `chat_saved_${user.id}`,
-        name: 'Mensajes Guardados (Tú)',
-        type: 'direct',
-        avatar: user.avatar,
-        topic: 'Tu bloc personal de notas, mensajes y archivos cifrados',
-        unreadCount: 0,
-        isPinned: true,
-        members: [user.id],
-        e2eeFingerprint: user.e2eeFingerprint,
-        createdAt: new Date().toISOString(),
-      };
-      setChats((prev) => [selfChat, ...prev]);
+      const selfChat = realChatService.getOrCreateSelfChat(user);
+      setChats((prev) => [selfChat, ...prev.filter((c) => c.id !== selfChat.id)]);
       setActiveChatId(selfChat.id);
       return;
     }
 
-    const cleanName = friendIdOrEmail.replace('@', '');
-    const newChatId = 'chat_user_' + Date.now();
-    const newChat: Chat = {
-      id: newChatId,
-      name: cleanName,
-      type: 'direct',
-      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(cleanName)}&background=2563eb&color=fff&bold=true`,
-      topic: 'Conversación directa',
-      unreadCount: 0,
-      isPinned: false,
-      members: [user.id, 'friend_' + Date.now()],
-      e2eeFingerprint: generateFingerprint(),
-      meetActiveRoom: undefined,
-      createdAt: new Date().toISOString(),
-    };
-    setChats((prev) => [newChat, ...prev]);
-    setActiveChatId(newChat.id);
+    // Look for existing account in directory
+    let targetAccount = accountRegistry.findAccount(clean);
+    if (!targetAccount) {
+      // Auto-register contact in directory so it's a real recognized account with E2EE
+      const cleanUser = clean.replace('@', '').toLowerCase();
+      const regResult = accountRegistry.registerAccount({
+        username: cleanUser,
+        displayName: clean.replace('@', ''),
+        email: clean.includes('@') ? clean : `${cleanUser}@nexus.chat`,
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(clean)}&background=2563eb&color=fff&bold=true`,
+        bio: 'Contacto verificado en Nexus',
+      });
+      targetAccount = regResult.account;
+    }
+
+    if (targetAccount) {
+      const { chat } = realChatService.getOrCreateDirectChat(user, targetAccount);
+      setChats((prev) => [chat, ...prev.filter((c) => c.id !== chat.id)]);
+      setActiveChatId(chat.id);
+    }
   };
 
   // End or dismiss active Meet room for a chat
   const handleEndMeetRoom = (chatId: string) => {
     setChats((prev) =>
-      prev.map((c) => (c.id === chatId ? { ...c, meetActiveRoom: undefined } : c))
+      prev.map((c) => {
+        if (c.id === chatId) {
+          const updated = { ...c, meetActiveRoom: undefined };
+          realChatService.saveChat(updated);
+          return updated;
+        }
+        return c;
+      })
     );
   };
 
@@ -467,7 +475,8 @@ export default function App() {
 
   // Create new chat
   const handleCreateChat = (newChat: Chat) => {
-    setChats((prev) => [newChat, ...prev]);
+    realChatService.saveChat(newChat);
+    setChats((prev) => [newChat, ...prev.filter((c) => c.id !== newChat.id)]);
     setActiveChatId(newChat.id);
   };
 
@@ -510,10 +519,15 @@ export default function App() {
         backgroundColor: palette.appBg,
       }}
     >
-      {/* 1. Left Sidebar Navigation (Desktop & Tablet) */}
+      {/* 1. Left Sidebar Navigation (Desktop vertical sidebar / Mobile bottom nav bar) */}
       <SidebarNav
         activeTab={activeTab}
-        onTabChange={(tab) => setActiveTab(tab)}
+        onTabChange={(tab) => {
+          setActiveTab(tab);
+          if (tab !== 'chats') {
+            setActiveChatId('');
+          }
+        }}
         user={user}
         onOpenShareModal={() => setShowShareModal(true)}
         onOpenDevicesModal={() => setShowDevicesModal(true)}
@@ -528,6 +542,7 @@ export default function App() {
         onOpenAiModal={() => setShowAiModal(true)}
         onOpenAuthModal={() => setShowAuthModal(true)}
         themeSettings={settings}
+        isChatOpenOnMobile={Boolean(activeChatId && activeTab === 'chats')}
       />
 
       {/* 2. Main Content Split View */}
@@ -580,33 +595,52 @@ export default function App() {
               themeSettings={settings}
             />
           ) : (
-            /* Chat Stream & List View */
-            <>
-              <ChatList
-                chats={chats}
-                activeChatId={activeChatId}
-                onSelectChat={(id) => setActiveChatId(id)}
-                onNewChat={() => setShowNewChatModal(true)}
-                filterMode="all"
-                themeSettings={settings}
-              />
+            /* Chat Stream & List View - Seamless responsive transition */
+            <div className="flex-1 flex w-full h-full overflow-hidden">
+              {/* ChatList: On mobile hidden if a chat is opened; on desktop always visible (320-384px) */}
+              <div
+                className={`h-full ${
+                  activeChatId
+                    ? 'hidden md:flex md:w-80 lg:w-96 shrink-0'
+                    : 'flex w-full md:w-80 lg:w-96 shrink-0'
+                }`}
+              >
+                <ChatList
+                  chats={chats}
+                  activeChatId={activeChatId}
+                  onSelectChat={(id) => setActiveChatId(id)}
+                  onNewChat={() => setShowNewChatModal(true)}
+                  filterMode="all"
+                  themeSettings={settings}
+                />
+              </div>
 
-              <ChatArea
-                chat={activeChat}
-                messages={currentChatMessages}
-                currentUser={user}
-                onSendMessage={handleSendMessage}
-                onStartCall={handleStartCall}
-                onOpenWorkspaceHub={() => setActiveTab('workspace')}
-                onOpenSecurityModal={() => setShowSecurityModal(true)}
-                onNewChat={() => setShowNewChatModal(true)}
-                onEndMeetRoom={handleEndMeetRoom}
-                onUpdateChat={handleUpdateChat}
-                onDeleteChat={handleDeleteChat}
-                onStartDirectChat={handleAddFriend}
-                themeSettings={settings}
-              />
-            </>
+              {/* ChatArea: On mobile visible only when a chat is open; on desktop always visible (flex-1) */}
+              <div
+                className={`h-full ${
+                  activeChatId
+                    ? 'flex flex-1 w-full min-w-0'
+                    : 'hidden md:flex md:flex-1 min-w-0'
+                }`}
+              >
+                <ChatArea
+                  chat={activeChat}
+                  messages={currentChatMessages}
+                  currentUser={user}
+                  onSendMessage={handleSendMessage}
+                  onStartCall={handleStartCall}
+                  onOpenWorkspaceHub={() => setActiveTab('workspace')}
+                  onOpenSecurityModal={() => setShowSecurityModal(true)}
+                  onNewChat={() => setShowNewChatModal(true)}
+                  onEndMeetRoom={handleEndMeetRoom}
+                  onUpdateChat={handleUpdateChat}
+                  onDeleteChat={handleDeleteChat}
+                  onStartDirectChat={handleAddFriend}
+                  themeSettings={settings}
+                  onBack={() => setActiveChatId('')}
+                />
+              </div>
+            </div>
           )}
         </div>
       </div>

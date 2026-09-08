@@ -191,7 +191,7 @@ class AccountRegistry {
    * Register or update account in registry
    */
   public registerAccount(
-    profile: UserProfile,
+    profile: Partial<UserProfile> & { username: string; displayName: string; email: string; avatar: string },
     securityPin: string = '123456',
     options?: {
       twoFactorEnabled?: boolean;
@@ -201,10 +201,11 @@ class AccountRegistry {
   ): { success: boolean; error?: string; account?: RegisteredAccount } {
     const cleanEmail = profile.email.trim().toLowerCase();
     const cleanUsername = profile.username.trim().toLowerCase().replace(/^@/, '');
+    const accountId = profile.id || `usr_${Date.now()}`;
 
     // Check if account already exists with different ID
     const existingByEmail = this.getAccountByEmail(cleanEmail);
-    if (existingByEmail && existingByEmail.id !== profile.id) {
+    if (existingByEmail && existingByEmail.id !== accountId) {
       return {
         success: false,
         error: `DUPLICATE_EMAIL: Ya existe una cuenta registrada con el correo ${profile.email}. Por seguridad y protección de identidad, no está permitido duplicar cuentas sin la autorización del propietario.`,
@@ -212,24 +213,24 @@ class AccountRegistry {
     }
 
     const existingByUsername = this.getAccountByUsername(cleanUsername);
-    if (existingByUsername && existingByUsername.id !== profile.id) {
+    if (existingByUsername && existingByUsername.id !== accountId) {
       return {
         success: false,
         error: `DUPLICATE_USERNAME: El nombre de usuario @${cleanUsername} ya pertenece a otra cuenta. Elige uno diferente.`,
       };
     }
 
-    const index = this.accounts.findIndex((a) => a.id === profile.id || a.email.toLowerCase() === cleanEmail);
+    const index = this.accounts.findIndex((a) => a.id === accountId || a.email.toLowerCase() === cleanEmail);
 
     const accountData: RegisteredAccount = {
-      id: profile.id,
+      id: accountId,
       email: cleanEmail,
       username: cleanUsername,
       displayName: profile.displayName,
       avatar: profile.avatar,
       bio: profile.bio || profile.statusMessage || '',
       status: profile.status || 'online',
-      isGoogleConnected: profile.isGoogleConnected,
+      isGoogleConnected: profile.isGoogleConnected ?? false,
       securityPin: securityPin || '123456',
       twoFactorEnabled: options?.twoFactorEnabled ?? true,
       requireDeviceApproval: options?.requireDeviceApproval ?? true,

@@ -292,7 +292,7 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
   return (
     <div
       id="nexus-workspace-hub-main"
-      className="flex-1 flex flex-col h-full overflow-y-auto p-4 md:p-8 transition-colors"
+      className="flex-1 flex flex-col h-full overflow-y-auto p-4 md:p-8 pb-28 md:pb-8 transition-colors"
       style={{
         backgroundColor:
           themeSettings.mode === 'oled'

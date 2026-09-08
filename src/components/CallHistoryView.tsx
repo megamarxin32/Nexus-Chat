@@ -185,7 +185,7 @@ export const CallHistoryView: React.FC<CallHistoryViewProps> = ({
       </div>
 
       {/* Call Logs Content */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-2">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-2 pb-24 md:pb-6">
         {filteredLogs.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-4 max-w-sm mx-auto">
             <div
