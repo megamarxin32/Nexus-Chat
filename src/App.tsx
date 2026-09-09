@@ -228,7 +228,7 @@ export default function App() {
     }
   }, [user?.id]);
 
-  // Cloud sync background listener and polling for multi-device real-time sync
+  // Sync right after a new session opens and listen to status changes
   useEffect(() => {
     if (!user) return;
 
@@ -236,12 +236,29 @@ export default function App() {
     const unlisten = cloudSyncService.onStatusChange((status) => {
       setCloudStatus(status);
       if (status === 'synced') {
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setLastSyncText(`Sincronizado ${time}`);
+        setLastSyncText(cloudSyncService.getLastSyncText());
       }
     });
 
-    // Start background sync polling cloud server
+    // 1. Inmediatamente DESPUÉS de que se abra una nueva sesión: Sincronizar estado
+    cloudSyncService.syncOnSessionStart(user.id, (cloudData) => {
+      if (cloudData.accounts && Array.isArray(cloudData.accounts)) {
+        accountRegistry.syncWithCloudAccounts(cloudData.accounts);
+      }
+      if (cloudData.chats || cloudData.messages) {
+        const merged = realChatService.syncWithCloud(cloudData.chats, cloudData.messages);
+        setChats(merged.chats);
+        setMessages(merged.messages);
+      }
+      if (cloudData.callLogs && Array.isArray(cloudData.callLogs) && cloudData.callLogs.length > 0) {
+        setCallLogs(cloudData.callLogs);
+      }
+      if (cloudData.workspaceItems && Array.isArray(cloudData.workspaceItems) && cloudData.workspaceItems.length > 0) {
+        setWorkspaceItems(cloudData.workspaceItems);
+      }
+    });
+
+    // 2. Sincronización automática de fondo cada 6 minutos (entre 5 y 10 minutos)
     const stopSync = cloudSyncService.startBackgroundSync(user.id, (cloudData) => {
       if (cloudData.accounts && Array.isArray(cloudData.accounts)) {
         accountRegistry.syncWithCloudAccounts(cloudData.accounts);
@@ -259,16 +276,8 @@ export default function App() {
       }
     });
 
-    return () => {
-      unlisten();
-      stopSync();
-    };
-  }, [user?.id]);
-
-  // Debounced push to cloud when user state or chats change
-  useEffect(() => {
-    if (!user) return;
-    const timer = setTimeout(() => {
+    // 3. Guardar estado antes de cerrar pestaña / recargar
+    const handleBeforeUnload = () => {
       cloudSyncService.pushFullStateToCloud({
         userId: user.id,
         userProfile: user,
@@ -278,9 +287,40 @@ export default function App() {
         callLogs,
         workspaceItems,
       });
-    }, 1200);
-    return () => clearTimeout(timer);
-  }, [chats, messages, callLogs, workspaceItems, user]);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      unlisten();
+      stopSync();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [user?.id]);
+
+  // Sincronización completa ANTES de que el usuario cierre sesión
+  const handleLogout = async () => {
+    if (user) {
+      setCloudStatus('syncing');
+      try {
+        await cloudSyncService.syncOnSessionClose({
+          userId: user.id,
+          userProfile: user,
+          chats,
+          messages,
+          accounts: accountRegistry.getAllAccounts(),
+          callLogs,
+          workspaceItems,
+        });
+      } catch (err) {
+        console.warn('Error syncing before logout:', err);
+      }
+    }
+    localStorage.removeItem('nexus_user');
+    setUser(null);
+    setActiveChatId('');
+    setChats([]);
+    setMessages({});
+  };
 
   // Manual trigger for cloud synchronization
   const handleForceCloudSync = async () => {
@@ -303,9 +343,20 @@ export default function App() {
   if (!user) {
     return (
       <AuthScreen
-        onAuthSuccess={(newUserProfile) => {
+        onAuthSuccess={async (newUserProfile) => {
           setUser(newUserProfile);
           localStorage.setItem('nexus_user', JSON.stringify(newUserProfile));
+          // Sincronizar inmediatamente DESPUÉS de abrir la nueva sesión
+          await cloudSyncService.syncOnSessionStart(newUserProfile.id, (cloudData) => {
+            if (cloudData.accounts && Array.isArray(cloudData.accounts)) {
+              accountRegistry.syncWithCloudAccounts(cloudData.accounts);
+            }
+            if (cloudData.chats || cloudData.messages) {
+              const merged = realChatService.syncWithCloud(cloudData.chats, cloudData.messages);
+              setChats(merged.chats);
+              setMessages(merged.messages);
+            }
+          });
         }}
       />
     );
@@ -580,6 +631,7 @@ export default function App() {
         }}
         onOpenAiModal={() => setShowAiModal(true)}
         onOpenAuthModal={() => setShowAuthModal(true)}
+        onLogout={handleLogout}
         themeSettings={settings}
         isChatOpenOnMobile={Boolean(activeChatId && activeTab === 'chats')}
       />
@@ -600,7 +652,7 @@ export default function App() {
             >
               {cloudStatus === 'syncing' ? (
                 <RefreshCw className="w-3 h-3 text-blue-400 animate-spin" />
-              ) : cloudStatus === 'offline' ? (
+              ) : cloudStatus === 'offline' && !navigator.onLine ? (
                 <CloudOff className="w-3 h-3 text-rose-400" />
               ) : (
                 <Cloud className="w-3 h-3 text-emerald-400" />
@@ -608,13 +660,13 @@ export default function App() {
               <span className="font-semibold text-[10px]">
                 {cloudStatus === 'syncing'
                   ? 'Sincronizando...'
-                  : cloudStatus === 'offline'
-                  ? 'Sin conexión'
+                  : cloudStatus === 'offline' && !navigator.onLine
+                  ? 'Modo sin internet'
                   : 'Nube Activa'}
               </span>
             </button>
-            <span className="text-[10px] text-slate-500 hidden sm:inline">
-              • Datos y chats sincronizados entre dispositivos
+            <span className="text-[10px] text-slate-400 hidden sm:inline">
+              • {lastSyncText || 'Sincronizado'} (Automático cada 6 min)
             </span>
           </div>
 
@@ -756,6 +808,7 @@ export default function App() {
         onUpdateUser={(updatedUser) => setUser(updatedUser)}
         dataStats={dataStats}
         initialTab={settingsTab}
+        onLogout={handleLogout}
       />
 
       <AIAssistantModal
@@ -775,7 +828,19 @@ export default function App() {
       <AuthModal
         isOpen={showAuthModal}
         onClose={() => setShowAuthModal(false)}
-        onLoginSuccess={(newProfile) => setUser(newProfile)}
+        onLoginSuccess={async (newProfile) => {
+          setUser(newProfile);
+          await cloudSyncService.syncOnSessionStart(newProfile.id, (cloudData) => {
+            if (cloudData.accounts && Array.isArray(cloudData.accounts)) {
+              accountRegistry.syncWithCloudAccounts(cloudData.accounts);
+            }
+            if (cloudData.chats || cloudData.messages) {
+              const merged = realChatService.syncWithCloud(cloudData.chats, cloudData.messages);
+              setChats(merged.chats);
+              setMessages(merged.messages);
+            }
+          });
+        }}
       />
 
       <NewChatModal

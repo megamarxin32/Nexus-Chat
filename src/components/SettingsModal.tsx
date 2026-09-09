@@ -71,6 +71,7 @@ interface SettingsModalProps {
   onUpdateUser: (newUser: UserProfile) => void;
   dataStats: { received: number; sent: number; saved: number };
   initialTab?: 'profile' | 'chat' | 'system' | 'appearance' | 'security' | 'parental' | 'preferences';
+  onLogout?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -82,6 +83,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateUser,
   dataStats,
   initialTab = 'profile',
+  onLogout,
 }) => {
   // Normalize incoming initial tab
   const getNormalizedTab = (tab: string): SettingsTabKey => {
@@ -622,8 +624,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 />
               </div>
 
-              {/* Save Profile Button */}
-              <div className="pt-2 flex justify-end">
+              {/* Save Profile & Logout Buttons */}
+              <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3">
+                {onLogout ? (
+                  <button
+                    type="button"
+                    id="btn-settings-logout"
+                    onClick={() => {
+                      onClose();
+                      onLogout();
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-500/30 text-xs font-semibold cursor-pointer transition-all"
+                    title="Sincronizar y cerrar sesión de forma segura"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Cerrar Sesión</span>
+                  </button>
+                ) : <div />}
+
                 <button
                   type="button"
                   id="btn-save-profile"

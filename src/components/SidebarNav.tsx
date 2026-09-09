@@ -25,6 +25,7 @@ interface SidebarNavProps {
   onOpenProfileModal?: () => void;
   onOpenAiModal: () => void;
   onOpenAuthModal: () => void;
+  onLogout?: () => void;
   themeSettings: ThemeSettings;
   isChatOpenOnMobile?: boolean;
 }
@@ -39,6 +40,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
   onOpenProfileModal,
   onOpenAiModal,
   onOpenAuthModal,
+  onLogout,
   themeSettings,
   isChatOpenOnMobile = false,
 }) => {
