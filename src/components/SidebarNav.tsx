@@ -11,6 +11,7 @@ import {
   LogOut,
   QrCode,
   Sparkles,
+  Laptop,
 } from 'lucide-react';
 import { UserProfile, ThemeSettings } from '../types';
 import { getThemePalette } from '../lib/themePresets';
@@ -25,6 +26,7 @@ interface SidebarNavProps {
   onOpenProfileModal?: () => void;
   onOpenAiModal: () => void;
   onOpenAuthModal: () => void;
+  onOpenPcMultiAccount?: () => void;
   onLogout?: () => void;
   themeSettings: ThemeSettings;
   isChatOpenOnMobile?: boolean;
@@ -40,6 +42,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
   onOpenProfileModal,
   onOpenAiModal,
   onOpenAuthModal,
+  onOpenPcMultiAccount,
   onLogout,
   themeSettings,
   isChatOpenOnMobile = false,
@@ -183,6 +186,20 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
             <Settings className="w-5 h-5" />
           </button>
 
+          {/* PC Multi-Account Switcher (Temporarily PC only) */}
+          <button
+            id="nav-btn-pc-multiaccount"
+            type="button"
+            onClick={onOpenPcMultiAccount}
+            className="relative flex items-center justify-center w-9 h-9 rounded-xl text-slate-400 hover:text-blue-400 hover:bg-slate-800/60 transition-all cursor-pointer group"
+            title="Multicuentas PC (Añadir o alternar cuentas en este equipo sin cerrar la sesión actual)"
+          >
+            <Laptop className="w-4 h-4" />
+            <span className="absolute -top-1 -right-1 text-[8px] font-bold px-1 rounded-full bg-blue-500/30 text-blue-300 border border-blue-500/40">
+              PC
+            </span>
+          </button>
+
           {/* User Profile Avatar with Online Status */}
           <div
             id="nav-user-avatar"
@@ -208,12 +225,13 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
             />
           </div>
 
-          {/* Switch account / Auth button */}
+          {/* Close session immediately when touching logout / switch account */}
           <button
             id="nav-btn-logout"
-            onClick={onOpenAuthModal}
-            className="text-slate-500 hover:text-blue-400 transition-colors p-1 cursor-pointer"
-            title="Cambiar de cuenta o iniciar sesión"
+            type="button"
+            onClick={onLogout}
+            className="text-slate-500 hover:text-rose-400 transition-colors p-1.5 rounded-lg hover:bg-slate-800/40 cursor-pointer"
+            title="Cerrar sesión actual e ir a iniciar sesión"
           >
             <LogOut className="w-4 h-4" />
           </button>

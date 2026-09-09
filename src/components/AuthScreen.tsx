@@ -16,6 +16,9 @@ import {
   Smartphone,
   Eye,
   EyeOff,
+  Laptop,
+  CheckCircle2,
+  ExternalLink,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { loginWithEmail, registerWithEmail, signInWithGoogle } from '../lib/firebaseAuth';
@@ -27,12 +30,14 @@ interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
   isModal?: boolean;
   onCloseModal?: () => void;
+  isAddAccountForPc?: boolean;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   onAuthSuccess,
   isModal = false,
   onCloseModal,
+  isAddAccountForPc = false,
 }) => {
   const [isRegister, setIsRegister] = useState(true);
   const [email, setEmail] = useState('');
@@ -44,6 +49,26 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [showPin, setShowPin] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [showCustomGoogle, setShowCustomGoogle] = useState(false);
+  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
+
+  // Auto-detected Google account on this device / environment
+  const [detectedGoogle] = useState<{
+    email: string;
+    name: string;
+    avatar: string;
+  }>(() => {
+    const savedEmail = localStorage.getItem('nexus_last_google_email');
+    const savedName = localStorage.getItem('nexus_last_google_name');
+    const savedAvatar = localStorage.getItem('nexus_last_google_avatar');
+    const googleAcc = accountRegistry.getAllAccounts().find((a) => a.isGoogleConnected);
+
+    return {
+      email: savedEmail || googleAcc?.email || 'megamarxin32@gmail.com',
+      name: savedName || googleAcc?.displayName || 'Mega Marxin',
+      avatar: savedAvatar || googleAcc?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+    };
+  });
 
   // Duplicate Account Alert State
   const [duplicateAlert, setDuplicateAlert] = useState<{
@@ -58,10 +83,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     pinInput: string;
     error?: string;
   } | null>(null);
-
-  // Optional alternative Google email input toggle
-  const [showCustomGoogle, setShowCustomGoogle] = useState(false);
-  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
 
   const handleNameChange = (name: string) => {
     setDisplayName(name);
@@ -212,6 +233,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       avatar: gAvatar,
       isGoogle: true,
     });
+
+    // Save detected Google credentials for future automatic detection
+    try {
+      localStorage.setItem('nexus_last_google_email', gEmail);
+      localStorage.setItem('nexus_last_google_name', gName);
+      if (gAvatar) localStorage.setItem('nexus_last_google_avatar', gAvatar);
+    } catch {
+      // ignore local storage quota
+    }
 
     profile.securityPin = '123456';
     profile.twoFactorEnabled = true;
@@ -497,7 +527,126 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         /* VIEW 3: MAIN REGISTRATION / LOGIN FORM                          */
         /* --------------------------------------------------------------- */
         <>
-          {/* Tabs Switcher: Registro vs Login */}
+          {/* PC Multi-account banner when adding another account */}
+          {isAddAccountForPc && (
+            <div className="p-3 rounded-2xl bg-blue-950/50 border border-blue-500/40 text-xs text-blue-200 flex items-center gap-2.5">
+              <Laptop className="w-4 h-4 text-blue-400 shrink-0" />
+              <div className="leading-tight">
+                <span className="font-bold text-white">Modo Multicuenta PC:</span>
+                <span className="text-blue-300 ml-1">Tu sesión actual permanecerá activa en este equipo.</span>
+              </div>
+            </div>
+          )}
+
+          {/* 1. SECCIÓN PRINCIPAL: CUENTA DE GOOGLE DETECTADA AUTOMÁTICAMENTE */}
+          <div className="p-4 rounded-2xl bg-gradient-to-b from-blue-950/40 to-slate-900 border border-blue-500/30 space-y-3.5 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                </div>
+                <span className="text-xs font-bold text-blue-300">
+                  Cuenta de Google detectada
+                </span>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                Detectada automáticamente
+              </span>
+            </div>
+
+            {/* Tarjeta del usuario Google detectado */}
+            <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/70 border border-slate-700/70">
+              <img
+                src={detectedGoogle.avatar}
+                alt={detectedGoogle.name}
+                className="w-10 h-10 rounded-full object-cover border-2 border-blue-500/40 shrink-0"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold text-white truncate">
+                  {detectedGoogle.name}
+                </div>
+                <div className="text-[11px] text-slate-400 truncate font-mono">
+                  {detectedGoogle.email}
+                </div>
+              </div>
+            </div>
+
+            {/* Botón principal: Continuar con la cuenta detectada */}
+            <button
+              id="btn-google-detected-login"
+              type="button"
+              onClick={() => handleGoogleLogin(detectedGoogle.email)}
+              disabled={isLoading}
+              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-600/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                <path fill="#ffffff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#ffffff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+              </svg>
+              <span>Continuar como {detectedGoogle.name}</span>
+            </button>
+
+            {/* Botón opcional: Elegir cualquier otra cuenta de Google (No obligatorio usar la detectada!) */}
+            <div className="space-y-2 pt-1 border-t border-slate-800/80">
+              <button
+                type="button"
+                id="btn-choose-other-google"
+                onClick={() => setShowCustomGoogle((prev) => !prev)}
+                className="w-full py-2 px-3 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white font-semibold text-xs border border-slate-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
+                <span>{showCustomGoogle ? 'Ocultar selector de otras cuentas Google' : 'Elegir otra cuenta de Google (Cualquier cuenta)'}</span>
+              </button>
+
+              {showCustomGoogle && (
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5 animate-in fade-in duration-150">
+                  <label className="text-[11px] font-semibold text-slate-300 block">
+                    Ingresa cualquier correo de Google (@gmail o Workspace):
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="email"
+                      placeholder="ejemplo@gmail.com"
+                      value={customGoogleEmail}
+                      onChange={(e) => setCustomGoogleEmail(e.target.value)}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (customGoogleEmail.trim()) {
+                          handleGoogleLogin(customGoogleEmail.trim());
+                        }
+                      }}
+                      disabled={!customGoogleEmail.trim() || isLoading}
+                      className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors disabled:opacity-50 cursor-pointer shrink-0"
+                    >
+                      Acceder
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleGoogleLogin()}
+                    className="w-full py-1.5 text-[11px] text-blue-400 hover:text-blue-300 underline text-center block cursor-pointer"
+                  >
+                    O abrir ventana emergente oficial de Google (OAuth Popup)
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Divisor opcional */}
+          <div className="flex items-center gap-3 pt-1">
+            <div className="flex-1 h-px bg-slate-800" />
+            <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider text-center">
+              o registro / inicio clásico con credenciales
+            </span>
+            <div className="flex-1 h-px bg-slate-800" />
+          </div>
+
+          {/* Tabs Switcher: Registro vs Login Clásico */}
           <div className="grid grid-cols-2 p-1 bg-slate-800/80 rounded-2xl border border-slate-700/50">
             <button
               type="button"
@@ -531,77 +680,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             >
               Iniciar Sesión
             </button>
-          </div>
-
-          {/* Official Sign in with Google Button */}
-          <button
-            id="btn-google-auth"
-            type="button"
-            onClick={() => handleGoogleLogin()}
-            disabled={isLoading}
-            className="w-full bg-white hover:bg-slate-100 text-slate-800 font-semibold text-xs py-3 px-4 rounded-2xl shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
-              <path
-                fill="#4285F4"
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-              />
-            </svg>
-            <span>Continuar con Google Workspace</span>
-          </button>
-
-          {/* Optional Alternative Google Account Selector */}
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => setShowCustomGoogle((prev) => !prev)}
-              className="text-[11px] text-slate-400 hover:text-slate-200 underline transition-colors cursor-pointer"
-            >
-              {showCustomGoogle ? 'Ocultar opciones de Google' : '¿Usar otra cuenta de Google Workspace?'}
-            </button>
-            {showCustomGoogle && (
-              <div className="mt-2 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center gap-2">
-                <input
-                  type="email"
-                  placeholder="otro-correo@gmail.com"
-                  value={customGoogleEmail}
-                  onChange={(e) => setCustomGoogleEmail(e.target.value)}
-                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-blue-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (customGoogleEmail.trim()) {
-                      handleGoogleLogin(customGoogleEmail.trim());
-                    }
-                  }}
-                  disabled={!customGoogleEmail.trim() || isLoading}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  Entrar
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-slate-800" />
-            <span className="text-[11px] text-slate-500 uppercase font-bold tracking-wider">
-              o con credenciales Nexus
-            </span>
-            <div className="flex-1 h-px bg-slate-800" />
           </div>
 
           {/* Main Email / Password Form */}

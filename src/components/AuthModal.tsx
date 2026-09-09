@@ -6,18 +6,21 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLoginSuccess: (user: UserProfile) => void;
+  isAddAccountForPc?: boolean;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
   onLoginSuccess,
+  isAddAccountForPc = false,
 }) => {
   if (!isOpen) return null;
 
   return (
     <AuthScreen
       isModal={true}
+      isAddAccountForPc={isAddAccountForPc}
       onCloseModal={onClose}
       onAuthSuccess={(userProfile) => {
         onLoginSuccess(userProfile);

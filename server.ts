@@ -236,11 +236,59 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// Helper to format messages attributing accurately between User, Persona A, Persona B, etc.
+function formatChatMessagesWithParticipants(messages: any[], currentUserName?: string): {
+  formattedLog: string;
+  participantsSummary: string;
+} {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return { formattedLog: '', participantsSummary: 'No hay mensajes registrados.' };
+  }
+
+  const otherPersonMap = new Map<string, { label: string; name: string }>();
+  const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+  let letterIdx = 0;
+
+  const lines = messages.map((m: any) => {
+    const text = m.text || m.content || '';
+    const isSelf = Boolean(m.isSelf || m.senderTag === 'self' || m.senderRole === 'user');
+
+    if (isSelf) {
+      const name = m.sender || m.senderName || currentUserName || 'Tú';
+      return `[TÚ (Usuario actual: ${name})]: ${text}`;
+    }
+
+    const idKey = String(m.senderId || m.sender || m.senderName || `person_${letterIdx}`).trim();
+    if (!otherPersonMap.has(idKey)) {
+      const letter = letters[letterIdx % letters.length];
+      const personName = m.sender || m.senderName || `Persona ${letter}`;
+      otherPersonMap.set(idKey, { label: `Persona ${letter}`, name: personName });
+      letterIdx++;
+    }
+
+    const { label, name } = otherPersonMap.get(idKey)!;
+    return `[${label} (${name})]: ${text}`;
+  });
+
+  const participantsList: string[] = ['• Tú (Usuario actual)'];
+  otherPersonMap.forEach(({ label, name }) => {
+    participantsList.push(`• ${label} (${name})`);
+  });
+
+  return {
+    formattedLog: lines.join('\n'),
+    participantsSummary: participantsList.join('\n'),
+  };
+}
+
 // Gemini AI Assistant Endpoint
 app.post("/api/ai/chat-assist", async (req, res) => {
   try {
-    const { action, prompt, context, messages, tone, isDataSaver } = req.body;
+    const { action, prompt, context, messages, tone, isDataSaver, currentUserName } = req.body;
     const ai = getAI();
+
+    // Prepare formatted chat log with rigorous participant differentiation
+    const { formattedLog, participantsSummary } = formatChatMessagesWithParticipants(messages, currentUserName);
 
     if (!ai) {
       // Graceful fallback if no API key is set yet
@@ -249,14 +297,14 @@ app.post("/api/ai/chat-assist", async (req, res) => {
         return res.json({
           replies: ["¡Entendido, cuenta conmigo!", "Perfecto, lo reviso ahora.", "¿A qué hora nos reunimos?", "De acuerdo, te confirmo en breve."],
         });
-      } else if (action === "summarize") {
-        fallbackText = "Resumen del chat:\n• Acuerdos de equipo confirmados\n• Se definieron tareas clave de colaboración\n• Enlace de Google Meet listo para la próxima sesión";
+      } else if (action === "summarize" || action === "analyze-participants") {
+        fallbackText = `📋 **Resumen con Atribución de Participantes:**\n${participantsSummary}\n\n• **Tú (Usuario):** Coordinación y seguimiento de actividades.\n• **Persona A:** Confirmó acuerdos y planteó puntos de revisión.\n• **Acuerdos del grupo:** Compromiso mutuo de avance y llamada Meet programada.`;
       } else if (action === "extract-tasks") {
         return res.json({
           tasks: [
-            { title: "Revisar documento colaborativo en Google Docs", dueDate: "Mañana" },
-            { title: "Preparar presentación en Google Slides", dueDate: "Esta semana" },
-            { title: "Confirmar asistencia a la llamada de Meet", dueDate: "Hoy" },
+            { title: "Revisar documento colaborativo en Google Docs", dueDate: "Mañana", assignedTo: "Tú" },
+            { title: "Preparar presentación en Google Slides", dueDate: "Esta semana", assignedTo: "Persona A" },
+            { title: "Confirmar asistencia a la llamada de Meet", dueDate: "Hoy", assignedTo: "Equipo" },
           ],
         });
       } else {
@@ -265,14 +313,22 @@ app.post("/api/ai/chat-assist", async (req, res) => {
       return res.json({ result: fallbackText });
     }
 
-    // Build system instructions and prompt based on action
-    let systemInstruction = "Eres un asistente de comunicación ejecutiva y colaboración de equipos en Nexus Chat.";
+    // System instruction strictly mandating person differentiation
+    const baseSystemInstruction = `Eres el asistente inteligente de Nexus Chat impulsado por Gemini con alta precisión en análisis de conversaciones.
+REGLA CRUCIAL DE ATRIBUCIÓN Y DIFERENCIACIÓN DE PERSONAS:
+El chat contiene intervenciones diferenciadas por autor:
+- '[TÚ (Usuario actual: ...)]': Es el usuario principal de la aplicación.
+- '[Persona A (...)]': Es la primera persona interlocutora en el chat.
+- '[Persona B (...)]': Es la segunda persona interlocutora en el chat.
+- '[Persona C (...)]' y siguientes: Las demás personas participantes.
+NUNCA CONFUNDAS NI MEZCLES las palabras o intenciones del usuario con las de Persona A, Persona B o cualquier otra persona. Cada una tiene su propio rol, opiniones y autoría. Siempre especifica con claridad quién propuso qué, quién preguntó y quién respondió.`;
+
+    let systemInstruction = baseSystemInstruction;
     let userPrompt = "";
 
     if (action === "smart-replies") {
-      systemInstruction = "Genera exactamente 4 respuestas cortas, naturales y directas en español para el último mensaje del chat. Devuelve solo un array JSON de 4 strings simples.";
-      const lastMessages = Array.isArray(messages) ? messages.slice(-5).map((m: any) => `${m.sender}: ${m.text}`).join("\n") : (prompt || "");
-      userPrompt = `Mensajes recientes:\n${lastMessages}\nGenera 4 respuestas rápidas adecuadas para responder.`;
+      systemInstruction = `${baseSystemInstruction}\nGenera exactamente 4 respuestas cortas, naturales y directas en español para que el USUARIO PRINCIPAL le responda a la última persona que habló en el chat. Devuelve solo un array JSON de 4 strings simples.`;
+      userPrompt = `Participantes:\n${participantsSummary}\n\nÚltimos mensajes:\n${formattedLog || prompt}\n\nGenera 4 respuestas inteligentes que el usuario pueda enviar.`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.8-flash",
@@ -293,9 +349,9 @@ app.post("/api/ai/chat-assist", async (req, res) => {
         });
       }
     } else if (action === "summarize") {
-      systemInstruction = "Eres un sintetizador ultra-eficiente de equipos. Resume la conversación del chat en 3 viñetas concisas con decisiones, acuerdos y próximos pasos clave en español.";
-      const chatLog = Array.isArray(messages) ? messages.map((m: any) => `[${m.sender}]: ${m.text}`).join("\n") : prompt;
-      userPrompt = `Resume este hilo de mensajes de equipo:\n${chatLog}`;
+      systemInstruction = `${baseSystemInstruction}\nResume la conversación estructurando claramente lo aportado por el Usuario ('Tú') frente a lo expresado por Persona A, Persona B y las demás personas, concluyendo con los acuerdos mutuos en viñetas concisas en español.`;
+      const chatContent = formattedLog || prompt;
+      userPrompt = `Participantes en el chat:\n${participantsSummary}\n\nHilo de mensajes a resumir con diferenciación de personas:\n${chatContent}`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.8-flash",
@@ -303,15 +359,31 @@ app.post("/api/ai/chat-assist", async (req, res) => {
         config: {
           systemInstruction,
           temperature: 0.3,
-          maxOutputTokens: isDataSaver ? 250 : 600,
+          maxOutputTokens: isDataSaver ? 300 : 700,
+        },
+      });
+
+      return res.json({ result: response.text });
+    } else if (action === "analyze-participants" || action === "chat-qa") {
+      systemInstruction = `${baseSystemInstruction}\nAnaliza detalladamente las posturas y aportaciones de cada participante por separado (Usuario 'Tú', Persona A, Persona B, etc.). Responde con claridad y exactitud.`;
+      const chatContent = formattedLog || context || "";
+      userPrompt = `Participantes identificados:\n${participantsSummary}\n\nHistorial de mensajes con autoría:\n${chatContent}\n\nPregunta / Solicitud de análisis:\n${prompt || 'Desglosa qué dijo cada persona (Tú vs Persona A vs Persona B) y cuáles son las conclusiones principales.'}`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: userPrompt,
+        config: {
+          systemInstruction,
+          temperature: 0.35,
+          maxOutputTokens: 800,
         },
       });
 
       return res.json({ result: response.text });
     } else if (action === "extract-tasks") {
-      systemInstruction = "Analiza el chat y extrae tareas accionables para el equipo en formato JSON: [{\"title\": \"...\", \"dueDate\": \"...\", \"priority\": \"Alta\"|\"Media\"|\"Baja\"}]. Devuelve solo JSON válido.";
-      const chatLog = Array.isArray(messages) ? messages.map((m: any) => `[${m.sender}]: ${m.text}`).join("\n") : prompt;
-      userPrompt = `Extrae las tareas pendientes de este chat:\n${chatLog}`;
+      systemInstruction = `${baseSystemInstruction}\nAnaliza el chat y extrae las tareas pendientes atribuidas a la persona correcta en formato JSON: [{"title": "...", "assignedTo": "Tú" | "Persona A" | "Persona B" | "Equipo", "dueDate": "...", "priority": "Alta"|"Media"|"Baja"}]. Devuelve solo JSON válido.`;
+      const chatContent = formattedLog || prompt;
+      userPrompt = `Participantes:\n${participantsSummary}\n\nExtrae las tareas atribuyéndolas a la persona correspondiente según el hilo:\n${chatContent}`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.8-flash",
@@ -344,12 +416,12 @@ app.post("/api/ai/chat-assist", async (req, res) => {
 
       return res.json({ result: response.text?.trim() });
     } else if (action === "draft-email-or-doc") {
-      userPrompt = `Contexto del equipo:\n${context || ""}\nInstrucción: ${prompt || "Redactar borrador de comunicación oficial"}`;
+      userPrompt = `Contexto del equipo (Participantes: ${participantsSummary}):\n${formattedLog || context || ""}\nInstrucción: ${prompt || "Redactar borrador de comunicación oficial"}`;
       const response = await ai.models.generateContent({
         model: "gemini-3.8-flash",
         contents: userPrompt,
         config: {
-          systemInstruction: "Genera un borrador estructurado para Gmail o Google Docs con Asunto/Título y cuerpo claro en español.",
+          systemInstruction: "Genera un borrador estructurado para Gmail o Google Docs con Asunto/Título y cuerpo claro en español, reflejando fielmente lo acordado entre las partes.",
           temperature: 0.5,
         },
       });
@@ -360,7 +432,7 @@ app.post("/api/ai/chat-assist", async (req, res) => {
         model: "gemini-3.8-flash",
         contents: prompt,
         config: {
-          systemInstruction: "Eres el asistente inteligente de Nexus Chat. Responde con claridad, precisión y formato limpio.",
+          systemInstruction: baseSystemInstruction,
           temperature: 0.6,
         },
       });

@@ -15,6 +15,7 @@ import {
   AuthScreen,
   NewChatModal,
   CallHistoryView,
+  PcMultiAccountModal,
 } from './components';
 import {
   INITIAL_WORKSPACE_ITEMS,
@@ -153,6 +154,17 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<'profile' | 'chat' | 'system' | 'appearance' | 'security' | 'parental' | 'preferences'>('profile');
   const [showAiModal, setShowAiModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showPcMultiAccountModal, setShowPcMultiAccountModal] = useState(false);
+  const [isAddAccountForPc, setIsAddAccountForPc] = useState(false);
+  const [pcAccounts, setPcAccounts] = useState<UserProfile[]>(() => {
+    const saved = localStorage.getItem('nexus_pc_accounts');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {}
+    }
+    return [];
+  });
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [showSecurityModal, setShowSecurityModal] = useState(false);
   const [parentalAlertMessage, setParentalAlertMessage] = useState<string | null>(null);
@@ -172,10 +184,16 @@ export default function App() {
   useEffect(() => {
     if (user) {
       localStorage.setItem('nexus_user', JSON.stringify(user));
+      setPcAccounts((prev) => {
+        const filtered = prev.filter((a) => a.id !== user.id);
+        const updated = [user, ...filtered];
+        localStorage.setItem('nexus_pc_accounts', JSON.stringify(updated));
+        return updated;
+      });
     } else {
       localStorage.removeItem('nexus_user');
     }
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     localStorage.setItem('nexus_chats', JSON.stringify(chats));
@@ -320,6 +338,41 @@ export default function App() {
     setActiveChatId('');
     setChats([]);
     setMessages({});
+  };
+
+  // Switch between accounts on PC without losing previously saved accounts
+  const handleSwitchPcAccount = async (targetUser: UserProfile) => {
+    if (user) {
+      await cloudSyncService.syncOnSessionClose({
+        userId: user.id,
+        userProfile: user,
+        chats,
+        messages,
+        accounts: accountRegistry.getAllAccounts(),
+        callLogs,
+        workspaceItems,
+      });
+    }
+    setUser(targetUser);
+    localStorage.setItem('nexus_user', JSON.stringify(targetUser));
+    await cloudSyncService.syncOnSessionStart(targetUser.id, (cloudData) => {
+      if (cloudData.accounts && Array.isArray(cloudData.accounts)) {
+        accountRegistry.syncWithCloudAccounts(cloudData.accounts);
+      }
+      if (cloudData.chats || cloudData.messages) {
+        const merged = realChatService.syncWithCloud(cloudData.chats, cloudData.messages);
+        setChats(merged.chats);
+        setMessages(merged.messages);
+      }
+    });
+  };
+
+  const handleRemovePcAccount = (userId: string) => {
+    setPcAccounts((prev) => {
+      const updated = prev.filter((a) => a.id !== userId);
+      localStorage.setItem('nexus_pc_accounts', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   // Manual trigger for cloud synchronization
@@ -630,7 +683,11 @@ export default function App() {
           setShowSettingsModal(true);
         }}
         onOpenAiModal={() => setShowAiModal(true)}
-        onOpenAuthModal={() => setShowAuthModal(true)}
+        onOpenAuthModal={async () => {
+          // Cierre de sesión inmediato al tocar iniciar sesión / cambiar cuenta; la cuenta se pide con la sesión cerrada
+          await handleLogout();
+        }}
+        onOpenPcMultiAccount={() => setShowPcMultiAccountModal(true)}
         onLogout={handleLogout}
         themeSettings={settings}
         isChatOpenOnMobile={Boolean(activeChatId && activeTab === 'chats')}
@@ -816,6 +873,8 @@ export default function App() {
         onClose={() => setShowAiModal(false)}
         onApplyResult={(text) => handleSendMessage(text)}
         themeSettings={settings}
+        activeChat={activeChat}
+        currentUser={user}
       />
 
       <SecurityModal
@@ -825,11 +884,33 @@ export default function App() {
         onClose={() => setShowSecurityModal(false)}
       />
 
+      {user && (
+        <PcMultiAccountModal
+          isOpen={showPcMultiAccountModal}
+          onClose={() => setShowPcMultiAccountModal(false)}
+          currentUser={user}
+          savedPcAccounts={pcAccounts}
+          onSwitchAccount={handleSwitchPcAccount}
+          onAddNewAccount={() => {
+            setShowPcMultiAccountModal(false);
+            setIsAddAccountForPc(true);
+            setShowAuthModal(true);
+          }}
+          onRemoveAccount={handleRemovePcAccount}
+          onImmediateLogout={handleLogout}
+        />
+      )}
+
       <AuthModal
         isOpen={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
+        isAddAccountForPc={isAddAccountForPc}
+        onClose={() => {
+          setShowAuthModal(false);
+          setIsAddAccountForPc(false);
+        }}
         onLoginSuccess={async (newProfile) => {
           setUser(newProfile);
+          setIsAddAccountForPc(false);
           await cloudSyncService.syncOnSessionStart(newProfile.id, (cloudData) => {
             if (cloudData.accounts && Array.isArray(cloudData.accounts)) {
               accountRegistry.syncWithCloudAccounts(cloudData.accounts);
