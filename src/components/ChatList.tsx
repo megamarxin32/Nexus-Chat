@@ -59,7 +59,7 @@ export const ChatList: React.FC<ChatListProps> = ({
   return (
     <div
       id="nexus-chat-list-panel"
-      className="w-full sm:w-80 md:w-96 flex flex-col border-r h-full shrink-0 transition-colors"
+      className="w-full flex flex-col border-r h-full shrink-0 transition-colors"
       style={{
         backgroundColor: palette.listBg,
         borderColor: palette.listBorder,
@@ -304,7 +304,7 @@ export const ChatList: React.FC<ChatListProps> = ({
 
       {/* Bottom Ultra-Data Status Footer */}
       <div
-        className="p-3 border-t flex items-center justify-between text-[11px] text-slate-400"
+        className="p-3 pb-20 md:pb-3 border-t flex items-center justify-between text-[11px] text-slate-400"
         style={{ borderColor: isDark ? '#1e293b' : '#e2e8f0' }}
       >
         <div className="flex items-center gap-1.5">

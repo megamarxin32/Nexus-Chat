@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
@@ -7,6 +8,202 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: "15mb" }));
+
+// Persistent Cloud Store for cross-device synchronization
+const CLOUD_STORE_FILE = path.join(process.cwd(), "cloud_storage.json");
+
+interface CloudDataStore {
+  users: Record<string, any>;
+  chats: Record<string, any[]>;
+  messages: Record<string, any[]>;
+  accounts: Record<string, any>;
+  callLogs: Record<string, any[]>;
+  workspace: Record<string, any[]>;
+  lastUpdated: string;
+}
+
+let cloudStore: CloudDataStore = {
+  users: {},
+  chats: {},
+  messages: {},
+  accounts: {},
+  callLogs: {},
+  workspace: {},
+  lastUpdated: new Date().toISOString(),
+};
+
+// Load existing store from disk if present
+try {
+  if (fs.existsSync(CLOUD_STORE_FILE)) {
+    const raw = fs.readFileSync(CLOUD_STORE_FILE, "utf-8");
+    cloudStore = JSON.parse(raw);
+    console.log("Loaded cloud store from disk with", Object.keys(cloudStore.chats).length, "chat groups");
+  }
+} catch (e) {
+  console.warn("Could not load cloud store from disk, starting fresh:", e);
+}
+
+function saveCloudStore() {
+  try {
+    cloudStore.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(CLOUD_STORE_FILE, JSON.stringify(cloudStore, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("Failed to persist cloud store to disk:", e);
+  }
+}
+
+// -------------------------------------------------------------
+// Cloud Sync Endpoints (Cross-Device Sync for all data)
+// -------------------------------------------------------------
+
+// Fetch synced state for a user (chats, messages, profile, directory)
+app.get("/api/cloud/sync/:userId", (req, res) => {
+  const { userId } = req.params;
+  const userProfile = cloudStore.users[userId] || null;
+  const userChats = cloudStore.chats[userId] || [];
+  
+  // Collect all messages for user's chats
+  const chatMessages: Record<string, any[]> = {};
+  for (const c of userChats) {
+    if (c.id && cloudStore.messages[c.id]) {
+      chatMessages[c.id] = cloudStore.messages[c.id];
+    }
+  }
+
+  const accounts = Object.values(cloudStore.accounts || {});
+  const callLogs = cloudStore.callLogs[userId] || [];
+  const workspaceItems = cloudStore.workspace[userId] || [];
+
+  res.json({
+    success: true,
+    userProfile,
+    chats: userChats,
+    messages: chatMessages,
+    accounts,
+    callLogs,
+    workspaceItems,
+    serverTime: new Date().toISOString(),
+    lastUpdated: cloudStore.lastUpdated,
+  });
+});
+
+// Full state sync from client to cloud
+app.post("/api/cloud/sync", (req, res) => {
+  const { userId, userProfile, chats, messages, accounts, callLogs, workspaceItems } = req.body;
+  if (!userId) {
+    return res.status(400).json({ error: "userId is required for sync" });
+  }
+
+  // Update profile
+  if (userProfile) {
+    cloudStore.users[userId] = {
+      ...cloudStore.users[userId],
+      ...userProfile,
+      lastSyncedAt: new Date().toISOString(),
+    };
+  }
+
+  // Update user's chats list
+  if (Array.isArray(chats)) {
+    cloudStore.chats[userId] = chats;
+  }
+
+  // Update messages per chat
+  if (messages && typeof messages === "object") {
+    for (const [chatId, msgList] of Object.entries(messages)) {
+      if (Array.isArray(msgList)) {
+        const existing = cloudStore.messages[chatId] || [];
+        const existingIds = new Set(existing.map((m: any) => m.id));
+        const merged = [...existing];
+        
+        for (const m of msgList) {
+          if (!existingIds.has((m as any).id)) {
+            merged.push(m);
+            existingIds.add((m as any).id);
+          }
+        }
+        cloudStore.messages[chatId] = merged;
+      }
+    }
+  }
+
+  // Update registered accounts
+  if (Array.isArray(accounts)) {
+    for (const acc of accounts) {
+      if (acc.id) {
+        cloudStore.accounts[acc.id] = acc;
+      }
+    }
+  }
+
+  if (Array.isArray(callLogs)) {
+    cloudStore.callLogs[userId] = callLogs;
+  }
+
+  if (Array.isArray(workspaceItems)) {
+    cloudStore.workspace[userId] = workspaceItems;
+  }
+
+  saveCloudStore();
+  res.json({ success: true, timestamp: cloudStore.lastUpdated });
+});
+
+// Sync a single new message immediately
+app.post("/api/cloud/message", (req, res) => {
+  const { message, recipientUserIds } = req.body;
+  if (!message || !message.chatId || !message.id) {
+    return res.status(400).json({ error: "Invalid message payload" });
+  }
+
+  const chatId = message.chatId;
+  const existing = cloudStore.messages[chatId] || [];
+  
+  // Deduplicate
+  const idx = existing.findIndex((m: any) => m.id === message.id);
+  if (idx >= 0) {
+    existing[idx] = message;
+  } else {
+    existing.push(message);
+  }
+  cloudStore.messages[chatId] = existing;
+
+  // Also ensure chat's lastMessage is updated across all members
+  const memberIds: string[] = Array.isArray(recipientUserIds) ? recipientUserIds : [];
+  if (message.senderId && !memberIds.includes(message.senderId)) {
+    memberIds.push(message.senderId);
+  }
+
+  for (const uid of memberIds) {
+    const userChats = cloudStore.chats[uid];
+    if (Array.isArray(userChats)) {
+      const cIdx = userChats.findIndex((c: any) => c.id === chatId);
+      if (cIdx >= 0) {
+        userChats[cIdx].lastMessage = message;
+      }
+    }
+  }
+
+  saveCloudStore();
+  res.json({ success: true, message, timestamp: new Date().toISOString() });
+});
+
+// Directory of all cloud accounts
+app.get("/api/cloud/accounts", (_req, res) => {
+  res.json({
+    accounts: Object.values(cloudStore.accounts || {}),
+  });
+});
+
+// Register or update account in directory
+app.post("/api/cloud/account", (req, res) => {
+  const { account } = req.body;
+  if (!account || !account.id) {
+    return res.status(400).json({ error: "Invalid account payload" });
+  }
+  cloudStore.accounts[account.id] = account;
+  saveCloudStore();
+  res.json({ success: true, account });
+});
 
 // Lazy AI Client Initialization
 let aiClient: GoogleGenAI | null = null;

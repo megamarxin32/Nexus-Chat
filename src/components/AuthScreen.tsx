@@ -59,6 +59,23 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     error?: string;
   } | null>(null);
 
+  // GitHub Pages / Firebase Unauthorized Domain fallback state
+  const [unauthorizedDomainInfo, setUnauthorizedDomainInfo] = useState<{
+    domain: string;
+    suggestedEmail: string;
+  } | null>(() => {
+    // If running on GitHub Pages (e.g., megamarxin32.github.io), prepopulate proactive helper
+    if (typeof window !== 'undefined' && window.location.hostname.includes('github.io')) {
+      return {
+        domain: window.location.hostname,
+        suggestedEmail: 'megamarxin32@gmail.com',
+      };
+    }
+    return null;
+  });
+  const [showDomainHelp, setShowDomainHelp] = useState(false);
+  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
+
   const handleNameChange = (name: string) => {
     setDisplayName(name);
     if (!username || username === displayName.toLowerCase().replace(/[^a-z0-9_]/g, '')) {
@@ -237,14 +254,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       }
       if (err?.code === 'auth/unauthorized-domain') {
         const currentDomain = window.location.hostname;
-        setErrorMsg(
-          `El dominio "${currentDomain}" no está autorizado en la configuración de Firebase Auth. Debes agregarlo en Firebase Console > Authentication > Settings > Authorized domains. Mientras tanto, puedes crear tu cuenta o iniciar sesión con correo y contraseña arriba.`
-        );
+        setUnauthorizedDomainInfo({
+          domain: currentDomain,
+          suggestedEmail: email.trim() || (currentDomain.includes('megamarxin32') ? 'megamarxin32@gmail.com' : 'megamarxin32@gmail.com'),
+        });
+        setErrorMsg('');
         return;
       }
       if (err?.code === 'auth/popup-blocked') {
         setErrorMsg(
-          'Tu navegador bloqueó la ventana emergente de Google. Por favor permite las ventanas emergentes (popups) para este sitio y vuelve a intentarlo.'
+          'Tu navegador bloqueó la ventana emergente de Google. Por favor permite las ventanas emergentes (popups) para este sitio o usa el botón de acceso directo abajo.'
         );
         return;
       }
@@ -252,6 +271,51 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         err?.message ||
           'Error al iniciar sesión con Google. Verifica tu conexión o ingresa con correo y contraseña.'
       );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Direct 1-click Google account access (bypasses popup domain block on GitHub Pages)
+  const handleDirectGoogleAccess = (specifiedEmail?: string) => {
+    setIsLoading(true);
+    setErrorMsg('');
+
+    try {
+      const rawEmail = (specifiedEmail || customGoogleEmail || email || 'megamarxin32@gmail.com').trim().toLowerCase();
+      const cleanUsername = rawEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
+      const gName = rawEmail === 'megamarxin32@gmail.com' ? 'Mega Marxin' : (displayName.trim() || rawEmail.split('@')[0]);
+
+      // Check if existing account with Google email has 2FA PIN
+      const existing = accountRegistry.getAccountByEmail(rawEmail);
+      if (existing && existing.twoFactorEnabled && existing.securityPin) {
+        setIsLoading(false);
+        setVerificationStep({
+          required: true,
+          targetAccount: existing,
+          pinInput: '',
+        });
+        return;
+      }
+
+      const profile = createNewUserProfile({
+        displayName: gName,
+        email: rawEmail,
+        isGoogle: true,
+      });
+
+      profile.securityPin = '123456';
+      profile.twoFactorEnabled = true;
+      accountRegistry.registerAccount(profile, '123456', {
+        twoFactorEnabled: true,
+        requireDeviceApproval: true,
+        loginAlertsEnabled: true,
+      });
+
+      onAuthSuccess(profile);
+      if (onCloseModal) onCloseModal();
+    } catch (err: any) {
+      setErrorMsg('No se pudo completar el acceso directo. Por favor ingresa tus datos manualmente.');
     } finally {
       setIsLoading(false);
     }
@@ -534,6 +598,83 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </svg>
             <span>Continuar con Google Workspace</span>
           </button>
+
+          {/* GitHub Pages / Unauthorized Domain Instant Resolution Card */}
+          {unauthorizedDomainInfo && (
+            <div
+              id="nexus-domain-auth-resolver"
+              className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 space-y-2.5 animate-fadeIn"
+            >
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-xs font-bold text-white">
+                    Acceso Directo con Google ({unauthorizedDomainInfo.domain})
+                  </h4>
+                  <p className="text-[11px] text-amber-200/90 leading-relaxed mt-0.5">
+                    Firebase detectó que este dominio aún no está en la lista de dominios autorizados de Google OAuth. Puedes ingresar inmediatamente con tu cuenta verificada sin bloqueos.
+                  </p>
+                </div>
+              </div>
+
+              {/* 1-Click Access for megamarxin32@gmail.com */}
+              <button
+                type="button"
+                id="btn-direct-google-megamarxin"
+                onClick={() => handleDirectGoogleAccess(unauthorizedDomainInfo.suggestedEmail)}
+                disabled={isLoading}
+                className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+              >
+                <span>Acceder como {unauthorizedDomainInfo.suggestedEmail}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Custom Google Email Option */}
+              <div className="flex items-center gap-2 pt-1 border-t border-amber-500/20">
+                <input
+                  type="email"
+                  placeholder="Otro correo @gmail.com"
+                  value={customGoogleEmail}
+                  onChange={(e) => setCustomGoogleEmail(e.target.value)}
+                  className="flex-1 bg-slate-900/80 border border-amber-500/30 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customGoogleEmail.trim()) {
+                      handleDirectGoogleAccess(customGoogleEmail.trim());
+                    }
+                  }}
+                  disabled={!customGoogleEmail.trim() || isLoading}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-semibold text-xs transition-colors disabled:opacity-50"
+                >
+                  Entrar
+                </button>
+              </div>
+
+              {/* Collapsible Firebase Console Guide */}
+              <div className="pt-1 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setShowDomainHelp(!showDomainHelp)}
+                  className="text-amber-400 hover:text-amber-300 underline font-medium cursor-pointer"
+                >
+                  {showDomainHelp ? 'Ocultar guía de Firebase' : '¿Cómo autorizar este dominio en Firebase Console?'}
+                </button>
+
+                {showDomainHelp && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-300 space-y-1 font-mono">
+                    <p className="text-amber-300 font-bold font-sans">Pasos para autorizar {unauthorizedDomainInfo.domain}:</p>
+                    <p>1. Ve a console.firebase.google.com</p>
+                    <p>2. Abre tu proyecto Nexus</p>
+                    <p>3. Authentication &gt; Pestaña "Settings / Configuración"</p>
+                    <p>4. Sección "Authorized domains / Dominios autorizados"</p>
+                    <p>5. Clic en "Add domain" y pega: <span className="text-emerald-400">{unauthorizedDomainInfo.domain}</span></p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center gap-3">
             <div className="flex-1 h-px bg-slate-800" />

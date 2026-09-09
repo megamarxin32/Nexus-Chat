@@ -22,84 +22,13 @@ export interface RegisteredAccount {
   linkedChildren?: LinkedChildProfile[];
 }
 
-// Initial directory of verified users for testing directory searches
-const DEFAULT_ACCOUNTS: RegisteredAccount[] = [
-  {
-    id: 'usr_valeria_ui',
-    email: 'valeria.rodriguez@gmail.com',
-    username: 'valeria_ui',
-    displayName: 'Valeria Rodríguez',
-    avatar: 'https://ui-avatars.com/api/?name=Valeria+Rodriguez&background=4f46e5&color=fff&bold=true',
-    bio: 'Diseñadora UI/UX & Google Workspace Specialist',
-    status: 'online',
-    isGoogleConnected: true,
-    securityPin: '123456',
-    twoFactorEnabled: true,
-    requireDeviceApproval: true,
-    loginAlertsEnabled: true,
-    preventDuplicateAccounts: true,
-    devices: [
-      {
-        id: 'dev_valeria_1',
-        name: 'Chrome en macOS',
-        type: 'desktop',
-        browser: 'Chrome 122 / macOS Sonoma',
-        lastActive: 'Activo hace 5 min',
-        isCurrent: false,
-        ipAddress: '192.168.1.45',
-        e2eeKeySynced: true,
-      },
-    ],
-    createdAt: 'Enero 2026',
-  },
-  {
-    id: 'usr_carlos_dev',
-    email: 'carlos.mendoza@gmail.com',
-    username: 'carlos_dev',
-    displayName: 'Carlos Mendoza',
-    avatar: 'https://ui-avatars.com/api/?name=Carlos+Mendoza&background=059669&color=fff&bold=true',
-    bio: 'Ingeniero de Software y Criptografía E2EE',
-    status: 'away',
-    isGoogleConnected: true,
-    securityPin: '654321',
-    twoFactorEnabled: true,
-    requireDeviceApproval: true,
-    loginAlertsEnabled: true,
-    preventDuplicateAccounts: true,
-    devices: [
-      {
-        id: 'dev_carlos_1',
-        name: 'Firefox en Linux',
-        type: 'desktop',
-        browser: 'Firefox / Ubuntu 24.04',
-        lastActive: 'Activo hoy',
-        isCurrent: false,
-        ipAddress: '10.0.0.12',
-        e2eeKeySynced: true,
-      },
-    ],
-    createdAt: 'Febrero 2026',
-  },
-  {
-    id: 'usr_soporte_nexus',
-    email: 'soporte@nexus.chat',
-    username: 'soporte_nexus',
-    displayName: 'Equipo de Soporte Nexus',
-    avatar: 'https://ui-avatars.com/api/?name=Soporte+Nexus&background=2563eb&color=fff&bold=true',
-    bio: 'Canal oficial de soporte y seguridad de la plataforma',
-    status: 'online',
-    isGoogleConnected: false,
-    securityPin: '999888',
-    twoFactorEnabled: true,
-    requireDeviceApproval: true,
-    loginAlertsEnabled: true,
-    preventDuplicateAccounts: true,
-    devices: [],
-    createdAt: 'Diciembre 2025',
-  },
-];
+// Clean real account directory (no fictitious dev or support accounts)
+const DEFAULT_ACCOUNTS: RegisteredAccount[] = [];
 
-const STORAGE_KEY = 'nexus_registered_accounts_v1';
+const FAKE_ACCOUNT_IDS = new Set(['usr_valeria_ui', 'usr_carlos_dev', 'usr_soporte_nexus']);
+const FAKE_USERNAMES = new Set(['valeria_ui', 'carlos_dev', 'soporte_nexus']);
+
+const STORAGE_KEY = 'nexus_registered_accounts_v2';
 
 class AccountRegistry {
   private accounts: RegisteredAccount[] = [];
@@ -108,17 +37,54 @@ class AccountRegistry {
     this.loadAccounts();
   }
 
+  private isFakeAccount(a: Partial<RegisteredAccount>): boolean {
+    if (a.id && FAKE_ACCOUNT_IDS.has(a.id)) return true;
+    if (a.username && FAKE_USERNAMES.has(a.username.toLowerCase())) return true;
+    const name = (a.displayName || '').toLowerCase();
+    if (name.includes('soporte') || name.includes('valeria') || name.includes('carlos')) {
+      if (a.email?.includes('nexus.chat') || a.id?.startsWith('usr_valeria') || a.id?.startsWith('usr_carlos')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private loadAccounts() {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('nexus_registered_accounts_v1');
       if (saved) {
-        this.accounts = JSON.parse(saved);
+        const parsed: RegisteredAccount[] = JSON.parse(saved);
+        // Exclude all fictitious devs and support accounts
+        this.accounts = parsed.filter((a) => !this.isFakeAccount(a));
+        this.persist();
       } else {
-        this.accounts = [...DEFAULT_ACCOUNTS];
+        this.accounts = [];
         this.persist();
       }
     } catch {
-      this.accounts = [...DEFAULT_ACCOUNTS];
+      this.accounts = [];
+    }
+  }
+
+  /**
+   * Merge accounts fetched from cloud sync
+   */
+  public syncWithCloudAccounts(cloudAccounts: RegisteredAccount[]) {
+    if (!Array.isArray(cloudAccounts)) return;
+    let changed = false;
+    for (const cAcc of cloudAccounts) {
+      if (this.isFakeAccount(cAcc)) continue;
+      const idx = this.accounts.findIndex((a) => a.id === cAcc.id || a.email.toLowerCase() === cAcc.email.toLowerCase());
+      if (idx >= 0) {
+        this.accounts[idx] = { ...this.accounts[idx], ...cAcc };
+        changed = true;
+      } else {
+        this.accounts.push(cAcc);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.persist();
     }
   }
 

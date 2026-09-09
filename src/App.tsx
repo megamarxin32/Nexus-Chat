@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Heart } from 'lucide-react';
+import { ShieldAlert, Heart, Cloud, CloudOff, RefreshCw, CheckCircle2 } from 'lucide-react';
 import {
   SidebarNav,
   ChatList,
@@ -22,6 +22,7 @@ import {
 } from './data/mockData';
 import { realChatService } from './lib/realChatService';
 import { accountRegistry } from './lib/accountRegistry';
+import { cloudSyncService, SyncStatus } from './lib/cloudSync';
 import {
   UserProfile,
   Chat,
@@ -34,41 +35,7 @@ import {
 import { getThemePalette } from './lib/themePresets';
 import { parentalControlManager } from './lib/parentalControl';
 
-const INITIAL_CALL_LOGS: CallLog[] = [
-  {
-    id: 'call_init_1',
-    contactName: 'Valeria Rodríguez',
-    contactAvatar: 'https://ui-avatars.com/api/?name=Valeria+Rodriguez&background=4f46e5&color=fff&bold=true',
-    contactUsername: 'valeria_ui',
-    type: 'video',
-    direction: 'incoming',
-    timestamp: 'Hoy, 10:14',
-    durationSeconds: 840,
-    status: 'completed',
-  },
-  {
-    id: 'call_init_2',
-    contactName: 'Carlos Mendoza',
-    contactAvatar: 'https://ui-avatars.com/api/?name=Carlos+Mendoza&background=059669&color=fff&bold=true',
-    contactUsername: 'carlos_dev',
-    type: 'audio',
-    direction: 'outgoing',
-    timestamp: 'Ayer, 18:32',
-    durationSeconds: 215,
-    status: 'completed',
-  },
-  {
-    id: 'call_init_3',
-    contactName: 'Equipo de Soporte Nexus',
-    contactAvatar: 'https://ui-avatars.com/api/?name=Soporte+Nexus&background=2563eb&color=fff&bold=true',
-    contactUsername: 'soporte_nexus',
-    type: 'audio',
-    direction: 'missed',
-    timestamp: '1 de sep, 14:05',
-    durationSeconds: 0,
-    status: 'missed',
-  },
-];
+const INITIAL_CALL_LOGS: CallLog[] = [];
 import { encryptE2EEMessage } from './lib/crypto';
 import { dataSaver } from './lib/dataSaver';
 import { notificationService } from './lib/notifications';
@@ -77,15 +44,27 @@ export default function App() {
   // Navigation & View state
   const [activeTab, setActiveTab] = useState<'chats' | 'calls' | 'workspace'>('chats');
   const [activeChatId, setActiveChatId] = useState<string>('');
+  const [cloudStatus, setCloudStatus] = useState<SyncStatus>('idle');
+  const [lastSyncText, setLastSyncText] = useState<string>('Sincronizado');
 
-  // Call Logs state
+  // Call Logs state - only real calls, filter out any fake support/dev logs
   const [callLogs, setCallLogs] = useState<CallLog[]>(() => {
     const saved = localStorage.getItem('nexus_call_logs');
-    if (!saved) return INITIAL_CALL_LOGS;
+    if (!saved) return [];
     try {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (l) =>
+            !l.contactUsername?.includes('soporte') &&
+            !l.contactUsername?.includes('carlos') &&
+            !l.contactUsername?.includes('valeria') &&
+            !l.contactName?.toLowerCase().includes('soporte')
+        );
+      }
+      return [];
     } catch {
-      return INITIAL_CALL_LOGS;
+      return [];
     }
   });
 
@@ -249,6 +228,77 @@ export default function App() {
     }
   }, [user?.id]);
 
+  // Cloud sync background listener and polling for multi-device real-time sync
+  useEffect(() => {
+    if (!user) return;
+
+    // Listen to sync status changes
+    const unlisten = cloudSyncService.onStatusChange((status) => {
+      setCloudStatus(status);
+      if (status === 'synced') {
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setLastSyncText(`Sincronizado ${time}`);
+      }
+    });
+
+    // Start background sync polling cloud server
+    const stopSync = cloudSyncService.startBackgroundSync(user.id, (cloudData) => {
+      if (cloudData.accounts && Array.isArray(cloudData.accounts)) {
+        accountRegistry.syncWithCloudAccounts(cloudData.accounts);
+      }
+      if (cloudData.chats || cloudData.messages) {
+        const merged = realChatService.syncWithCloud(cloudData.chats, cloudData.messages);
+        setChats(merged.chats);
+        setMessages(merged.messages);
+      }
+      if (cloudData.callLogs && Array.isArray(cloudData.callLogs) && cloudData.callLogs.length > 0) {
+        setCallLogs(cloudData.callLogs);
+      }
+      if (cloudData.workspaceItems && Array.isArray(cloudData.workspaceItems) && cloudData.workspaceItems.length > 0) {
+        setWorkspaceItems(cloudData.workspaceItems);
+      }
+    });
+
+    return () => {
+      unlisten();
+      stopSync();
+    };
+  }, [user?.id]);
+
+  // Debounced push to cloud when user state or chats change
+  useEffect(() => {
+    if (!user) return;
+    const timer = setTimeout(() => {
+      cloudSyncService.pushFullStateToCloud({
+        userId: user.id,
+        userProfile: user,
+        chats,
+        messages,
+        accounts: accountRegistry.getAllAccounts(),
+        callLogs,
+        workspaceItems,
+      });
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [chats, messages, callLogs, workspaceItems, user]);
+
+  // Manual trigger for cloud synchronization
+  const handleForceCloudSync = async () => {
+    if (!user) return;
+    setCloudStatus('syncing');
+    const cloudData = await cloudSyncService.fetchCloudData(user.id);
+    if (cloudData) {
+      if (cloudData.accounts && Array.isArray(cloudData.accounts)) {
+        accountRegistry.syncWithCloudAccounts(cloudData.accounts);
+      }
+      if (cloudData.chats || cloudData.messages) {
+        const merged = realChatService.syncWithCloud(cloudData.chats, cloudData.messages);
+        setChats(merged.chats);
+        setMessages(merged.messages);
+      }
+    }
+  };
+
   // If user has not created an account or logged in, show AuthScreen
   if (!user) {
     return (
@@ -328,19 +378,8 @@ export default function App() {
       prevChats.map((c) => (c.id === activeChat.id ? updatedChat : c))
     );
 
-    // Trigger automated realistic response if applicable (e.g., support or teammate reply)
-    realChatService.handleAutomatedReply(activeChat, text, user, (replyMsg) => {
-      if (settings.notificationSounds) {
-        notificationService.playMessageSound('incoming');
-      }
-      setMessages((prev) => ({
-        ...prev,
-        [activeChat.id]: [...(prev[activeChat.id] || []), replyMsg],
-      }));
-      setChats((prevChats) =>
-        prevChats.map((c) => (c.id === activeChat.id ? { ...c, lastMessage: replyMsg } : c))
-      );
-    });
+    // Push new message to cloud sync server for other devices / recipients
+    cloudSyncService.pushMessage(newMessage, activeChat.members);
   };
 
   // Start Call (Meet)
@@ -547,6 +586,44 @@ export default function App() {
 
       {/* 2. Main Content Split View */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
+        {/* Top Status Bar: Cloud Sync & Multi-device indicator */}
+        <div
+          id="nexus-cloud-sync-bar"
+          className="px-3 py-1 bg-slate-900/50 border-b border-slate-800/40 flex items-center justify-between text-[11px] select-none shrink-0"
+        >
+          <div className="flex items-center gap-2">
+            <button
+              id="btn-force-cloud-sync"
+              onClick={handleForceCloudSync}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-800/70 hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer"
+              title="Clic para sincronizar con la nube ahora mismo"
+            >
+              {cloudStatus === 'syncing' ? (
+                <RefreshCw className="w-3 h-3 text-blue-400 animate-spin" />
+              ) : cloudStatus === 'offline' ? (
+                <CloudOff className="w-3 h-3 text-rose-400" />
+              ) : (
+                <Cloud className="w-3 h-3 text-emerald-400" />
+              )}
+              <span className="font-semibold text-[10px]">
+                {cloudStatus === 'syncing'
+                  ? 'Sincronizando...'
+                  : cloudStatus === 'offline'
+                  ? 'Sin conexión'
+                  : 'Nube Activa'}
+              </span>
+            </button>
+            <span className="text-[10px] text-slate-500 hidden sm:inline">
+              • Datos y chats sincronizados entre dispositivos
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-slate-400 text-[10px]">
+            <span className="hidden md:inline font-mono">{lastSyncText}</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" title="Sincronización en tiempo real habilitada" />
+          </div>
+        </div>
+
         {/* Minor account supervision banner */}
         {user.isMinor && (
           <div className="bg-purple-950/80 border-b border-purple-500/30 px-3 py-1.5 flex items-center justify-between text-xs text-purple-200 shrink-0 backdrop-blur-sm z-10">
