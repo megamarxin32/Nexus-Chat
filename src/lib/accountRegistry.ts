@@ -167,19 +167,13 @@ class AccountRegistry {
   ): { success: boolean; error?: string; account?: RegisteredAccount } {
     const cleanEmail = profile.email.trim().toLowerCase();
     const cleanUsername = profile.username.trim().toLowerCase().replace(/^@/, '');
-    const accountId = profile.id || `usr_${Date.now()}`;
-
-    // Check if account already exists with different ID
+    
+    // Check if account already exists with this email: UNIFY as a single account
     const existingByEmail = this.getAccountByEmail(cleanEmail);
-    if (existingByEmail && existingByEmail.id !== accountId) {
-      return {
-        success: false,
-        error: `DUPLICATE_EMAIL: Ya existe una cuenta registrada con el correo ${profile.email}. Por seguridad y protección de identidad, no está permitido duplicar cuentas sin la autorización del propietario.`,
-      };
-    }
+    const accountId = existingByEmail ? existingByEmail.id : (profile.id || `usr_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`);
 
     const existingByUsername = this.getAccountByUsername(cleanUsername);
-    if (existingByUsername && existingByUsername.id !== accountId) {
+    if (existingByUsername && existingByUsername.id !== accountId && existingByUsername.email !== cleanEmail) {
       return {
         success: false,
         error: `DUPLICATE_USERNAME: El nombre de usuario @${cleanUsername} ya pertenece a otra cuenta. Elige uno diferente.`,
@@ -191,37 +185,37 @@ class AccountRegistry {
     const accountData: RegisteredAccount = {
       id: accountId,
       email: cleanEmail,
-      username: cleanUsername,
-      displayName: profile.displayName,
-      avatar: profile.avatar,
-      bio: profile.bio || profile.statusMessage || '',
-      status: profile.status || 'online',
-      isGoogleConnected: profile.isGoogleConnected ?? false,
-      securityPin: securityPin || '123456',
-      twoFactorEnabled: options?.twoFactorEnabled ?? true,
-      requireDeviceApproval: options?.requireDeviceApproval ?? true,
-      loginAlertsEnabled: options?.loginAlertsEnabled ?? true,
+      username: existingByEmail?.username || cleanUsername,
+      displayName: profile.displayName || existingByEmail?.displayName || cleanUsername,
+      avatar: profile.avatar || existingByEmail?.avatar || '',
+      bio: profile.bio || profile.statusMessage || existingByEmail?.bio || '',
+      status: profile.status || existingByEmail?.status || 'online',
+      isGoogleConnected: profile.isGoogleConnected || existingByEmail?.isGoogleConnected || false,
+      securityPin: securityPin || existingByEmail?.securityPin || '123456',
+      twoFactorEnabled: options?.twoFactorEnabled ?? existingByEmail?.twoFactorEnabled ?? true,
+      requireDeviceApproval: options?.requireDeviceApproval ?? existingByEmail?.requireDeviceApproval ?? true,
+      loginAlertsEnabled: options?.loginAlertsEnabled ?? existingByEmail?.loginAlertsEnabled ?? true,
       preventDuplicateAccounts: true,
-      devices: profile.devices || [detectCurrentDevice()],
-      createdAt: profile.joinedDate || 'Hoy',
-      isMinor: profile.isMinor,
-      parentalControl: profile.parentalControl,
-      linkedChildren: profile.linkedChildren,
+      devices: profile.devices || existingByEmail?.devices || [detectCurrentDevice()],
+      createdAt: existingByEmail?.createdAt || profile.joinedDate || 'Hoy',
+      isMinor: profile.isMinor ?? existingByEmail?.isMinor,
+      parentalControl: profile.parentalControl || existingByEmail?.parentalControl,
+      linkedChildren: profile.linkedChildren || existingByEmail?.linkedChildren,
     };
 
     if (index >= 0) {
-      // Update existing
+      // Unify and update existing single account
       this.accounts[index] = {
         ...this.accounts[index],
         ...accountData,
-        securityPin: securityPin || this.accounts[index].securityPin || '123456',
+        isGoogleConnected: accountData.isGoogleConnected || this.accounts[index].isGoogleConnected,
       };
     } else {
       this.accounts.push(accountData);
     }
 
     this.persist();
-    return { success: true, account: accountData };
+    return { success: true, account: index >= 0 ? this.accounts[index] : accountData };
   }
 
   /**

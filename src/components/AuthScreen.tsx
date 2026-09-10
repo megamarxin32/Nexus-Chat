@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { loginWithEmail, registerWithEmail, signInWithGoogle } from '../lib/firebaseAuth';
-import { createNewUserProfile, detectCurrentDevice } from '../data/mockData';
+import { createNewUserProfile, detectCurrentDevice, generateFingerprint } from '../data/mockData';
 import { accountRegistry, RegisteredAccount } from '../lib/accountRegistry';
 import { createDefaultParentalSettings } from '../lib/parentalControl';
 
@@ -52,22 +52,31 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [showCustomGoogle, setShowCustomGoogle] = useState(false);
   const [customGoogleEmail, setCustomGoogleEmail] = useState('');
 
-  // Auto-detected Google account on this device / environment
+  // Auto-detected Google account from previous session on this device
   const [detectedGoogle] = useState<{
     email: string;
     name: string;
     avatar: string;
-  }>(() => {
+  } | null>(() => {
     const savedEmail = localStorage.getItem('nexus_last_google_email');
     const savedName = localStorage.getItem('nexus_last_google_name');
     const savedAvatar = localStorage.getItem('nexus_last_google_avatar');
+    if (savedEmail) {
+      return {
+        email: savedEmail,
+        name: savedName || savedEmail.split('@')[0],
+        avatar: savedAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(savedName || savedEmail)}&background=2563eb&color=fff&bold=true`,
+      };
+    }
     const googleAcc = accountRegistry.getAllAccounts().find((a) => a.isGoogleConnected);
-
-    return {
-      email: savedEmail || googleAcc?.email || 'megamarxin32@gmail.com',
-      name: savedName || googleAcc?.displayName || 'Mega Marxin',
-      avatar: savedAvatar || googleAcc?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-    };
+    if (googleAcc) {
+      return {
+        email: googleAcc.email,
+        name: googleAcc.displayName,
+        avatar: googleAcc.avatar,
+      };
+    }
+    return null;
   });
 
   // Duplicate Account Alert State
@@ -181,42 +190,55 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   };
 
   const completeProfileSuccess = (cleanEmail: string, cleanUsername: string) => {
-    const finalName = displayName.trim() || cleanEmail.split('@')[0];
+    // Unify: Check if an account already exists with this email (via Google or previous registration)
+    const existing = accountRegistry.getAccountByEmail(cleanEmail);
+    const accountId = existing ? existing.id : (`usr_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`);
+
+    const finalName = displayName.trim() || existing?.displayName || cleanEmail.split('@')[0];
     const finalUsername =
-      cleanUsername.trim() || cleanEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
+      cleanUsername.trim() || existing?.username || cleanEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
 
-    const profile = createNewUserProfile({
+    const profile: UserProfile = {
+      id: accountId,
       displayName: finalName,
-      email: cleanEmail,
       username: finalUsername,
-    });
+      email: cleanEmail,
+      avatar: existing?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(finalName)}&background=2563eb&color=fff&bold=true`,
+      status: existing?.status || 'online',
+      statusMessage: existing?.bio || 'Disponible | E2EE activo',
+      bio: existing?.bio || '',
+      phone: '',
+      e2eeFingerprint: generateFingerprint(),
+      joinedDate: existing?.createdAt || new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }),
+      isGoogleConnected: existing?.isGoogleConnected ?? false,
+      securityPin: securityPin || existing?.securityPin || '123456',
+      twoFactorEnabled: existing?.twoFactorEnabled ?? true,
+      requireDeviceApproval: existing?.requireDeviceApproval ?? true,
+      loginAlertsEnabled: existing?.loginAlertsEnabled ?? true,
+      preventDuplicateAccounts: true,
+      devices: existing?.devices?.length ? existing.devices : [detectCurrentDevice()],
+      isMinor: isMinorAccount || existing?.isMinor || false,
+      parentalControl: isMinorAccount ? createDefaultParentalSettings(true) : existing?.parentalControl,
+      linkedChildren: existing?.linkedChildren,
+    };
 
-    profile.securityPin = securityPin || '123456';
-    profile.twoFactorEnabled = true;
-    profile.requireDeviceApproval = true;
-    profile.loginAlertsEnabled = true;
-    profile.preventDuplicateAccounts = true;
-
-    if (isMinorAccount) {
-      profile.isMinor = true;
-      profile.parentalControl = createDefaultParentalSettings(true);
-    }
-
-    // Register into system-wide account registry
+    // Register into system-wide account registry (will update & unify existing)
     accountRegistry.registerAccount(profile, profile.securityPin, {
-      twoFactorEnabled: true,
-      requireDeviceApproval: true,
-      loginAlertsEnabled: true,
+      twoFactorEnabled: profile.twoFactorEnabled,
+      requireDeviceApproval: profile.requireDeviceApproval,
+      loginAlertsEnabled: profile.loginAlertsEnabled,
     });
 
     onAuthSuccess(profile);
     if (onCloseModal) onCloseModal();
   };
 
-  // Unified Google Workspace completion handler
+  // Unified Google Workspace completion handler: shares the exact same unified account
   const completeGoogleLogin = (gName: string, gEmail: string, gAvatar?: string) => {
+    const cleanEmail = gEmail.trim().toLowerCase();
+    const existing = accountRegistry.getAccountByEmail(cleanEmail);
+
     // Check if existing account with Google email has 2FA PIN
-    const existing = accountRegistry.getAccountByEmail(gEmail);
     if (existing && existing.twoFactorEnabled && existing.securityPin) {
       setIsLoading(false);
       setVerificationStep({
@@ -227,91 +249,96 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
-    const profile = createNewUserProfile({
-      displayName: gName,
-      email: gEmail,
-      avatar: gAvatar,
-      isGoogle: true,
-    });
-
     // Save detected Google credentials for future automatic detection
     try {
-      localStorage.setItem('nexus_last_google_email', gEmail);
+      localStorage.setItem('nexus_last_google_email', cleanEmail);
       localStorage.setItem('nexus_last_google_name', gName);
       if (gAvatar) localStorage.setItem('nexus_last_google_avatar', gAvatar);
     } catch {
       // ignore local storage quota
     }
 
-    profile.securityPin = '123456';
-    profile.twoFactorEnabled = true;
-    profile.requireDeviceApproval = true;
-    profile.loginAlertsEnabled = true;
-    profile.preventDuplicateAccounts = true;
+    // Unify under the exact same account ID as classic login
+    const accountId = existing ? existing.id : (`usr_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`);
+    const finalName = gName || existing?.displayName || cleanEmail.split('@')[0];
+    const finalUsername = existing?.username || cleanEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
 
-    accountRegistry.registerAccount(profile, '123456', {
-      twoFactorEnabled: true,
-      requireDeviceApproval: true,
-      loginAlertsEnabled: true,
+    const profile: UserProfile = {
+      id: accountId,
+      displayName: finalName,
+      username: finalUsername,
+      email: cleanEmail,
+      avatar: gAvatar || existing?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(finalName)}&background=2563eb&color=fff&bold=true`,
+      status: existing?.status || 'online',
+      statusMessage: existing?.bio || 'Disponible | E2EE activo',
+      bio: existing?.bio || '',
+      phone: '',
+      e2eeFingerprint: generateFingerprint(),
+      joinedDate: existing?.createdAt || new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }),
+      isGoogleConnected: true, // Google OAuth connected
+      securityPin: existing?.securityPin || '123456',
+      twoFactorEnabled: existing?.twoFactorEnabled ?? true,
+      requireDeviceApproval: existing?.requireDeviceApproval ?? true,
+      loginAlertsEnabled: existing?.loginAlertsEnabled ?? true,
+      preventDuplicateAccounts: true,
+      devices: existing?.devices?.length ? existing.devices : [detectCurrentDevice()],
+      isMinor: existing?.isMinor || false,
+      parentalControl: existing?.parentalControl,
+      linkedChildren: existing?.linkedChildren,
+    };
+
+    accountRegistry.registerAccount(profile, profile.securityPin, {
+      twoFactorEnabled: profile.twoFactorEnabled,
+      requireDeviceApproval: profile.requireDeviceApproval,
+      loginAlertsEnabled: profile.loginAlertsEnabled,
     });
 
     onAuthSuccess(profile);
     if (onCloseModal) onCloseModal();
   };
 
-  // Google Login Flow - Fully seamless across localhost, Cloud Run, and GitHub Pages
+  // Google Login Flow - Opens official Google OAuth popup with account chooser across all domains
   const handleGoogleLogin = async (customEmail?: string) => {
     setIsLoading(true);
     setErrorMsg('');
     setDuplicateAlert(null);
 
-    const currentDomain = typeof window !== 'undefined' ? window.location.hostname : '';
-    const isLocalOrRunApp =
-      currentDomain === 'localhost' ||
-      currentDomain === '127.0.0.1' ||
-      currentDomain.endsWith('.run.app') ||
-      currentDomain.endsWith('.firebaseapp.com') ||
-      currentDomain.endsWith('.web.app');
-
-    // Only attempt popup if we are on a known Firebase-authorized domain and no manual email was given
-    if (isLocalOrRunApp && !customEmail) {
-      try {
-        const res = await signInWithGoogle();
-        if (res?.user) {
-          const googleUser = res.user;
-          const gName = googleUser.displayName || googleUser.email?.split('@')[0] || 'Usuario';
-          const gEmail = (googleUser.email || '').toLowerCase();
-          const gAvatar = googleUser.photoURL || undefined;
-          completeGoogleLogin(gName, gEmail, gAvatar);
-          return;
-        }
-      } catch (err: any) {
-        console.warn('Firebase popup sign-in fallback:', err);
-        if (err?.code === 'auth/popup-closed-by-user') {
-          setIsLoading(false);
-          return;
-        }
-        // If domain unauthorized or popup blocked, proceed directly without blocking or erroring
-      }
+    // If a custom email was explicitly entered, use it directly
+    if (customEmail && customEmail.trim()) {
+      const cleanCustom = customEmail.trim().toLowerCase();
+      const derivedName = cleanCustom.split('@')[0];
+      completeGoogleLogin(derivedName, cleanCustom);
+      setIsLoading(false);
+      return;
     }
 
-    // On GitHub Pages (megamarxin32.github.io) or any non-whitelisted domain:
-    // Sign in seamlessly with verified Google Workspace account without ANY errors!
-    const targetEmail = (
-      customEmail ||
-      email.trim() ||
-      (currentDomain.includes('megamarxin32') ? 'megamarxin32@gmail.com' : 'megamarxin32@gmail.com')
-    ).toLowerCase();
+    // Always attempt the official Google OAuth popup first with forced account selection dialog
+    try {
+      const res = await signInWithGoogle();
+      if (res?.user) {
+        const googleUser = res.user;
+        const gName = googleUser.displayName || googleUser.email?.split('@')[0] || 'Usuario';
+        const gEmail = (googleUser.email || '').toLowerCase();
+        const gAvatar = googleUser.photoURL || undefined;
+        completeGoogleLogin(gName, gEmail, gAvatar);
+        return;
+      }
+    } catch (err: any) {
+      console.warn('Firebase popup result:', err);
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        // User closed the popup voluntarily
+        setIsLoading(false);
+        return;
+      }
 
-    const targetName =
-      targetEmail === 'megamarxin32@gmail.com'
-        ? 'Mega Marxin'
-        : displayName.trim() || targetEmail.split('@')[0];
-
-    setTimeout(() => {
-      completeGoogleLogin(targetName, targetEmail);
+      // If popup was blocked or domain requires manual entry
       setIsLoading(false);
-    }, 250);
+      setShowCustomGoogle(true);
+      setErrorMsg('La ventana de Google requirió verificación o el dominio necesita autorización. Por favor selecciona o ingresa el correo de la cuenta de Google a continuación.');
+      return;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Confirm Owner 2FA PIN
@@ -538,64 +565,114 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </div>
           )}
 
-          {/* 1. SECCIÓN PRINCIPAL: CUENTA DE GOOGLE DETECTADA AUTOMÁTICAMENTE */}
+          {/* 1. SECCIÓN PRINCIPAL: GOOGLE OAUTH & WORKSPACE CON SELECTOR DE CUENTAS */}
           <div className="p-4 rounded-2xl bg-gradient-to-b from-blue-950/40 to-slate-900 border border-blue-500/30 space-y-3.5 shadow-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                  <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+            {detectedGoogle ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                    </div>
+                    <span className="text-xs font-bold text-blue-300">
+                      Cuenta de Google en este equipo
+                    </span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold">
+                    Sesión previa
+                  </span>
                 </div>
-                <span className="text-xs font-bold text-blue-300">
-                  Cuenta de Google detectada
-                </span>
-              </div>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                Detectada automáticamente
-              </span>
-            </div>
 
-            {/* Tarjeta del usuario Google detectado */}
-            <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/70 border border-slate-700/70">
-              <img
-                src={detectedGoogle.avatar}
-                alt={detectedGoogle.name}
-                className="w-10 h-10 rounded-full object-cover border-2 border-blue-500/40 shrink-0"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold text-white truncate">
-                  {detectedGoogle.name}
+                {/* Tarjeta del usuario Google detectado */}
+                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/70 border border-slate-700/70">
+                  <img
+                    src={detectedGoogle.avatar}
+                    alt={detectedGoogle.name}
+                    className="w-10 h-10 rounded-full object-cover border-2 border-blue-500/40 shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold text-white truncate">
+                      {detectedGoogle.name}
+                    </div>
+                    <div className="text-[11px] text-slate-400 truncate font-mono">
+                      {detectedGoogle.email}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[11px] text-slate-400 truncate font-mono">
-                  {detectedGoogle.email}
+
+                {/* Botón principal: Continuar con la cuenta detectada */}
+                <button
+                  id="btn-google-detected-login"
+                  type="button"
+                  onClick={() => handleGoogleLogin(detectedGoogle.email)}
+                  disabled={isLoading}
+                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-600/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
+                >
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <path fill="#ffffff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#ffffff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  </svg>
+                  <span>Continuar como {detectedGoogle.name}</span>
+                </button>
+
+                {/* Botón para abrir el selector oficial de cualquier otra cuenta de Google */}
+                <button
+                  type="button"
+                  id="btn-google-official-popup"
+                  onClick={() => handleGoogleLogin()}
+                  disabled={isLoading}
+                  className="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700/90 text-white font-semibold text-xs border border-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Elegir otra cuenta de Google (Selector oficial)</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                    </div>
+                    <span className="text-xs font-bold text-blue-300">
+                      Google Workspace & OAuth
+                    </span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                    Cualquier cuenta
+                  </span>
                 </div>
-              </div>
-            </div>
 
-            {/* Botón principal: Continuar con la cuenta detectada */}
-            <button
-              id="btn-google-detected-login"
-              type="button"
-              onClick={() => handleGoogleLogin(detectedGoogle.email)}
-              disabled={isLoading}
-              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-600/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
-            >
-              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                <path fill="#ffffff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="#ffffff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-              </svg>
-              <span>Continuar como {detectedGoogle.name}</span>
-            </button>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Accede con cualquier cuenta de Google (@gmail o Workspace). Se abrirá la ventana oficial para que elijas libremente con cuál cuenta ingresar.
+                </p>
 
-            {/* Botón opcional: Elegir cualquier otra cuenta de Google (No obligatorio usar la detectada!) */}
+                {/* Botón principal: Abrir selector oficial de Google */}
+                <button
+                  id="btn-google-login-universal"
+                  type="button"
+                  onClick={() => handleGoogleLogin()}
+                  disabled={isLoading}
+                  className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-600/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
+                >
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <path fill="#ffffff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#ffffff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  </svg>
+                  <span>Iniciar sesión con Google (Elegir cualquier cuenta)</span>
+                </button>
+              </>
+            )}
+
+            {/* Alternativa: Ingresar correo de Google manualmente */}
             <div className="space-y-2 pt-1 border-t border-slate-800/80">
               <button
                 type="button"
-                id="btn-choose-other-google"
+                id="btn-toggle-custom-google"
                 onClick={() => setShowCustomGoogle((prev) => !prev)}
-                className="w-full py-2 px-3 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white font-semibold text-xs border border-slate-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                className="w-full py-1.5 text-[11px] text-slate-400 hover:text-blue-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
-                <span>{showCustomGoogle ? 'Ocultar selector de otras cuentas Google' : 'Elegir otra cuenta de Google (Cualquier cuenta)'}</span>
+                <span>{showCustomGoogle ? 'Ocultar entrada manual' : '¿Prefieres ingresar tu correo de Google directamente?'}</span>
               </button>
 
               {showCustomGoogle && (
@@ -606,7 +683,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <div className="flex items-center gap-2">
                     <input
                       type="email"
-                      placeholder="ejemplo@gmail.com"
+                      placeholder="tu_cuenta@gmail.com"
                       value={customGoogleEmail}
                       onChange={(e) => setCustomGoogleEmail(e.target.value)}
                       className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-blue-500"
@@ -624,14 +701,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       Acceder
                     </button>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleGoogleLogin()}
-                    className="w-full py-1.5 text-[11px] text-blue-400 hover:text-blue-300 underline text-center block cursor-pointer"
-                  >
-                    O abrir ventana emergente oficial de Google (OAuth Popup)
-                  </button>
                 </div>
               )}
             </div>

@@ -63,11 +63,27 @@ export const initAuth = (
   });
 };
 
-// Sign in with Google (Firebase popup)
+// Sign in with Google (Firebase popup with forced account chooser)
 export const signInWithGoogle = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, googleProvider);
+    // Always sign out from Firebase instance first so Google displays account chooser dialog
+    try {
+      await signOut(auth);
+    } catch {
+      // ignore
+    }
+
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: 'select_account',
+    });
+
+    WORKSPACE_SCOPES.forEach((scope) => {
+      provider.addScope(scope);
+    });
+
+    const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       console.warn('No access token returned from Google credential');
