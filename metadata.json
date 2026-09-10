@@ -1,6 +1,6 @@
 {
   "name": "Nexus Chat & Team Hub",
-  "description": "Plataforma de comunicación universal y mensajería con cifrado E2EE, notas de voz, fotos, vídeos, traducción instantánea, protector de enlaces seguros, cuentas para empresas, creador de archivos descargables y soporte multicuenta.",
+  "description": "Super-app de comunicación universal inspirada en Teams, WhatsApp, Discord y Google Chat: canales de avisos, estados de 24h, servidores comunitarios con salas de voz y texto, arcade de minijuegos y cifrado E2EE.",
   "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

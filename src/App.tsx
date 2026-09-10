@@ -16,6 +16,9 @@ import {
   NewChatModal,
   CallHistoryView,
   PcMultiAccountModal,
+  ChannelsAndStatusView,
+  CommunitiesView,
+  ArcadeLoungeView,
 } from './components';
 import {
   INITIAL_WORKSPACE_ITEMS,
@@ -32,6 +35,7 @@ import {
   ThemeSettings,
   MessageAttachment,
   CallLog,
+  AppTab,
 } from './types';
 import { getThemePalette } from './lib/themePresets';
 import { parentalControlManager } from './lib/parentalControl';
@@ -43,7 +47,7 @@ import { notificationService } from './lib/notifications';
 
 export default function App() {
   // Navigation & View state
-  const [activeTab, setActiveTab] = useState<'chats' | 'calls' | 'workspace'>('chats');
+  const [activeTab, setActiveTab] = useState<AppTab>('chats');
   const [activeChatId, setActiveChatId] = useState<string>('');
   const [cloudStatus, setCloudStatus] = useState<SyncStatus>('idle');
   const [lastSyncText, setLastSyncText] = useState<string>('Sincronizado');
@@ -486,6 +490,51 @@ export default function App() {
     cloudSyncService.pushMessage(newMessage, activeChat.members);
   };
 
+  // Helper to send messages from Arcade / Channels / Communities into a specific chat
+  const handleSendMessageToChat = async (targetChatId: string, text: string) => {
+    const targetChat = chats.find((c) => c.id === targetChatId);
+    if (!targetChat || !user) return;
+
+    const e2eeEnvelope = await encryptE2EEMessage(text, targetChat.id);
+    const newMessage: Message = {
+      id: 'msg_' + Date.now(),
+      chatId: targetChat.id,
+      senderId: user.id,
+      senderName: user.displayName,
+      senderAvatar: user.avatar,
+      text,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'sent',
+      isE2EE: true,
+      integrityHash: e2eeEnvelope.integrityHash,
+    };
+
+    realChatService.addMessage(targetChat.id, newMessage);
+    setMessages((prev) => ({
+      ...prev,
+      [targetChat.id]: [...(prev[targetChat.id] || []), newMessage],
+    }));
+
+    const updatedChat: Chat = {
+      ...targetChat,
+      lastMessage: {
+        ...newMessage,
+        status: 'delivered',
+      },
+    };
+    realChatService.saveChat(updatedChat);
+    setChats((prevChats) =>
+      prevChats.map((c) => (c.id === targetChat.id ? updatedChat : c))
+    );
+
+    cloudSyncService.pushMessage(newMessage, targetChat.members);
+  };
+
+  const handleNavigateToChat = (chatId: string) => {
+    setActiveTab('chats');
+    setActiveChatId(chatId);
+  };
+
   // Start Call (Meet)
   const handleStartCall = (isVideo: boolean, targetChat?: Chat) => {
     // Parental control permission check
@@ -759,7 +808,31 @@ export default function App() {
         )}
 
         <div className="flex-1 flex overflow-hidden min-w-0">
-          {activeTab === 'workspace' ? (
+          {activeTab === 'channels_status' ? (
+            /* Canales de Avisos & Estados 24h (WhatsApp / Instagram / Telegram) */
+            <ChannelsAndStatusView
+              currentUser={user}
+              themeSettings={settings}
+              chats={chats}
+              onSendMessageToChat={handleSendMessageToChat}
+            />
+          ) : activeTab === 'communities' ? (
+            /* Comunidades & Servidores (WhatsApp Communities + Discord Servers) */
+            <CommunitiesView
+              currentUser={user}
+              themeSettings={settings}
+              onStartVoiceCall={(channelName) => handleStartCall(false)}
+            />
+          ) : activeTab === 'arcade' ? (
+            /* Nexus Arcade Lounge (Trivia, Wordle, Conecta 4, Reflejos) */
+            <ArcadeLoungeView
+              currentUser={user}
+              chats={chats}
+              themeSettings={settings}
+              onSendMessageToChat={handleSendMessageToChat}
+              onNavigateToChat={handleNavigateToChat}
+            />
+          ) : activeTab === 'workspace' ? (
             /* Google Workspace Hub View */
             <WorkspaceHub
               items={workspaceItems}

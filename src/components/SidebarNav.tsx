@@ -12,14 +12,17 @@ import {
   QrCode,
   Sparkles,
   Laptop,
+  Radio,
+  Users,
+  Gamepad2,
 } from 'lucide-react';
-import { UserProfile, ThemeSettings } from '../types';
+import { UserProfile, ThemeSettings, AppTab } from '../types';
 import { getThemePalette } from '../lib/themePresets';
 import { NexusLogo } from './NexusLogo';
 
 interface SidebarNavProps {
-  activeTab: 'chats' | 'calls' | 'workspace';
-  onTabChange: (tab: 'chats' | 'calls' | 'workspace') => void;
+  activeTab: AppTab;
+  onTabChange: (tab: AppTab) => void;
   user: UserProfile;
   onOpenShareModal: () => void;
   onOpenDevicesModal: () => void;
@@ -62,7 +65,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
         }}
       >
         {/* Top Branding & Logo */}
-        <div className="flex flex-col items-center gap-4 w-full">
+        <div className="flex flex-col items-center gap-3 w-full">
           <div
             id="nexus-app-logo"
             className="relative group cursor-pointer flex items-center justify-center w-11 h-11 transition-all hover:scale-105"
@@ -84,7 +87,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
           )}
 
           {/* Main Navigation Items */}
-          <nav className="flex flex-col items-center gap-2 w-full px-2 mt-2">
+          <nav className="flex flex-col items-center gap-1.5 w-full px-2 mt-1">
             {/* Chats */}
             <button
               id="nav-btn-chats"
@@ -97,9 +100,66 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
               style={{
                 backgroundColor: activeTab === 'chats' ? palette.accentBg : undefined,
               }}
-              title="Chats"
+              title="Chats & Mensajes E2EE"
             >
               <MessageSquare className="w-5 h-5" />
+            </button>
+
+            {/* Canales & Estados (Stories 24h & Canales de Avisos) */}
+            <button
+              id="nav-btn-channels-status"
+              onClick={() => onTabChange('channels_status')}
+              className={`relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl transition-all cursor-pointer ${
+                activeTab === 'channels_status'
+                  ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/40'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+              title="Canales de Avisos & Estados de 24h"
+            >
+              <Radio className="w-5 h-5" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            </button>
+
+            {/* Comunidades & Servidores (WhatsApp Communities + Discord Servers) */}
+            <button
+              id="nav-btn-communities"
+              onClick={() => onTabChange('communities')}
+              className={`relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl transition-all cursor-pointer ${
+                activeTab === 'communities'
+                  ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-400/40'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+              title="Comunidades & Servidores (Discord & WhatsApp)"
+            >
+              <Users className="w-5 h-5" />
+            </button>
+
+            {/* Nexus Arcade Lounge (Juegos & Retos) */}
+            <button
+              id="nav-btn-arcade"
+              onClick={() => onTabChange('arcade')}
+              className={`relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl transition-all cursor-pointer ${
+                activeTab === 'arcade'
+                  ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400/40'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+              title="Nexus Arcade Lounge (Trivia, Palabra Secreta, Conecta 4, Retos)"
+            >
+              <Gamepad2 className="w-5 h-5" />
+            </button>
+
+            {/* Workspace & Archivos */}
+            <button
+              id="nav-btn-workspace"
+              onClick={() => onTabChange('workspace')}
+              className={`relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl transition-all cursor-pointer ${
+                activeTab === 'workspace'
+                  ? 'bg-cyan-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+              title="Workspace & Archivos (Crear notas, tablas, código y descargar archivos)"
+            >
+              <Briefcase className="w-5 h-5" />
             </button>
 
             {/* Historial de llamadas */}
@@ -119,66 +179,41 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
               <PhoneCall className="w-5 h-5" />
             </button>
 
-            {/* Workspace & Archivos */}
-            <button
-              id="nav-btn-workspace"
-              onClick={() => onTabChange('workspace')}
-              className={`relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl transition-all cursor-pointer ${
-                activeTab === 'workspace'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-              }`}
-              title="Workspace & Archivos (Crear notas, tablas, código y descargar archivos)"
-            >
-              <Briefcase className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400" />
-            </button>
-
             {/* Gemini AI Floating Super-Assistant */}
             <button
               id="nav-btn-ai-assistant"
               onClick={onOpenAiModal}
-              className="relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl bg-gradient-to-tr from-purple-600/20 to-blue-600/20 text-purple-400 border border-purple-500/30 hover:border-purple-400 hover:bg-purple-600/30 transition-all group"
+              className="relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl bg-gradient-to-tr from-purple-600/20 to-blue-600/20 text-purple-400 border border-purple-500/30 hover:border-purple-400 hover:bg-purple-600/30 transition-all group cursor-pointer"
               title="Asistente Gemini AI (Resumen, Tareas, Borradores)"
             >
               <Sparkles className="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" />
-            </button>
-
-            {/* QR Code & Share Profile */}
-            <button
-              id="nav-btn-share-qr"
-              onClick={onOpenShareModal}
-              className="relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 transition-all"
-              title="Código QR y Compartir Cuenta"
-            >
-              <QrCode className="w-5 h-5" />
-            </button>
-
-            {/* Dispositivos Multidispositivo */}
-            <button
-              id="nav-btn-devices"
-              onClick={onOpenDevicesModal}
-              className="relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 transition-all"
-              title="Sincronización Multidispositivo & Claves E2EE"
-            >
-              <Smartphone className="w-5 h-5" />
             </button>
           </nav>
         </div>
 
         {/* Bottom Controls & User Profile */}
-        <div className="flex flex-col items-center gap-3 w-full px-2">
+        <div className="flex flex-col items-center gap-2.5 w-full px-2">
+          {/* QR Code & Share Profile */}
+          <button
+            id="nav-btn-share-qr"
+            onClick={onOpenShareModal}
+            className="flex items-center justify-center w-9 h-9 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 transition-all cursor-pointer"
+            title="Código QR y Compartir Cuenta"
+          >
+            <QrCode className="w-4 h-4" />
+          </button>
+
           {/* Settings */}
           <button
             id="nav-btn-settings"
             onClick={onOpenSettingsModal}
-            className="flex items-center justify-center w-10 h-10 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 transition-all cursor-pointer"
+            className="flex items-center justify-center w-9 h-9 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 transition-all cursor-pointer"
             title="Ajustes de Tema, Ahorro de Datos y Cifrado"
           >
-            <Settings className="w-5 h-5" />
+            <Settings className="w-4 h-4" />
           </button>
 
-          {/* PC Multi-Account Switcher (Temporarily PC only) */}
+          {/* PC Multi-Account Switcher */}
           <button
             id="nav-btn-pc-multiaccount"
             type="button"
@@ -197,15 +232,15 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
             id="nav-user-avatar"
             onClick={onOpenProfileModal || onOpenSettingsModal}
             className="relative cursor-pointer group"
-            title={`${user.displayName} (@${user.username}) - Clic para personalizar perfil, avatar y colores`}
+            title={`${user.displayName} (@${user.username}) - Clic para personalizar perfil`}
           >
             <img
               src={user.avatar}
               alt={user.displayName}
-              className="w-10 h-10 rounded-full object-cover border-2 border-slate-700 group-hover:border-blue-500 transition-colors"
+              className="w-9 h-9 rounded-full object-cover border-2 border-slate-700 group-hover:border-blue-500 transition-colors"
             />
             <span
-              className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 ${
+              className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${
                 user.status === 'online'
                   ? 'bg-emerald-500'
                   : user.status === 'busy'
@@ -217,7 +252,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
             />
           </div>
 
-          {/* Close session immediately when touching logout / switch account */}
+          {/* Logout */}
           <button
             id="nav-btn-logout"
             type="button"
@@ -249,36 +284,74 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
             }`}
           >
             <div
-              className="w-10 h-7 rounded-full flex items-center justify-center transition-all"
+              className="w-9 h-6 rounded-full flex items-center justify-center transition-all"
               style={{
                 backgroundColor: activeTab === 'chats' ? palette.accentBg : 'transparent',
               }}
             >
               <MessageSquare className="w-4 h-4" />
             </div>
-            <span className="text-[10px] font-semibold mt-0.5">Chats</span>
+            <span className="text-[9px] font-semibold mt-0.5">Chats</span>
           </button>
 
-          {/* Llamadas */}
+          {/* Canales & Estados */}
           <button
-            id="mobile-nav-calls"
-            onClick={() => onTabChange('calls')}
+            id="mobile-nav-channels-status"
+            onClick={() => onTabChange('channels_status')}
             className={`flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors min-h-[48px] cursor-pointer ${
-              activeTab === 'calls' ? 'text-white' : 'text-slate-400'
+              activeTab === 'channels_status' ? 'text-white' : 'text-slate-400'
             }`}
           >
             <div
-              className="w-10 h-7 rounded-full flex items-center justify-center transition-all"
+              className="w-9 h-6 rounded-full flex items-center justify-center transition-all"
               style={{
-                backgroundColor: activeTab === 'calls' ? palette.accentBg : 'transparent',
+                backgroundColor: activeTab === 'channels_status' ? '#059669' : 'transparent',
               }}
             >
-              <PhoneCall className="w-4 h-4" />
+              <Radio className="w-4 h-4" />
             </div>
-            <span className="text-[10px] font-semibold mt-0.5">Llamadas</span>
+            <span className="text-[9px] font-semibold mt-0.5">Canales</span>
           </button>
 
-          {/* Workspace Hub */}
+          {/* Comunidades */}
+          <button
+            id="mobile-nav-communities"
+            onClick={() => onTabChange('communities')}
+            className={`flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors min-h-[48px] cursor-pointer ${
+              activeTab === 'communities' ? 'text-white' : 'text-slate-400'
+            }`}
+          >
+            <div
+              className="w-9 h-6 rounded-full flex items-center justify-center transition-all"
+              style={{
+                backgroundColor: activeTab === 'communities' ? '#4f46e5' : 'transparent',
+              }}
+            >
+              <Users className="w-4 h-4" />
+            </div>
+            <span className="text-[9px] font-semibold mt-0.5">Comunidad</span>
+          </button>
+
+          {/* Arcade */}
+          <button
+            id="mobile-nav-arcade"
+            onClick={() => onTabChange('arcade')}
+            className={`flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors min-h-[48px] cursor-pointer ${
+              activeTab === 'arcade' ? 'text-white' : 'text-slate-400'
+            }`}
+          >
+            <div
+              className="w-9 h-6 rounded-full flex items-center justify-center transition-all"
+              style={{
+                backgroundColor: activeTab === 'arcade' ? '#d97706' : 'transparent',
+              }}
+            >
+              <Gamepad2 className="w-4 h-4" />
+            </div>
+            <span className="text-[9px] font-semibold mt-0.5">Arcade</span>
+          </button>
+
+          {/* Workspace */}
           <button
             id="mobile-nav-workspace"
             onClick={() => onTabChange('workspace')}
@@ -287,26 +360,14 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
             }`}
           >
             <div
-              className="w-10 h-7 rounded-full flex items-center justify-center transition-all"
+              className="w-9 h-6 rounded-full flex items-center justify-center transition-all"
               style={{
-                backgroundColor: activeTab === 'workspace' ? '#4f46e5' : 'transparent',
+                backgroundColor: activeTab === 'workspace' ? '#0891b2' : 'transparent',
               }}
             >
               <Briefcase className="w-4 h-4" />
             </div>
-            <span className="text-[10px] font-semibold mt-0.5">Workspace</span>
-          </button>
-
-          {/* Gemini AI */}
-          <button
-            id="mobile-nav-ai"
-            onClick={onOpenAiModal}
-            className="flex flex-col items-center justify-center flex-1 h-full py-1 text-purple-400 transition-colors min-h-[48px] cursor-pointer"
-          >
-            <div className="w-10 h-7 rounded-full flex items-center justify-center bg-purple-500/15">
-              <Sparkles className="w-4 h-4 text-purple-400" />
-            </div>
-            <span className="text-[10px] font-semibold mt-0.5">Gemini</span>
+            <span className="text-[9px] font-semibold mt-0.5">Docs</span>
           </button>
 
           {/* Ajustes */}
@@ -315,31 +376,10 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
             onClick={onOpenSettingsModal}
             className="flex flex-col items-center justify-center flex-1 h-full py-1 text-slate-400 hover:text-white transition-colors min-h-[48px] cursor-pointer"
           >
-            <div className="w-10 h-7 rounded-full flex items-center justify-center">
+            <div className="w-9 h-6 rounded-full flex items-center justify-center">
               <Settings className="w-4 h-4" />
             </div>
-            <span className="text-[10px] font-semibold mt-0.5">Ajustes</span>
-          </button>
-
-          {/* Perfil */}
-          <button
-            id="mobile-nav-profile"
-            onClick={onOpenProfileModal || onOpenSettingsModal}
-            className="flex flex-col items-center justify-center flex-1 h-full py-1 text-slate-400 hover:text-white transition-colors min-h-[48px] cursor-pointer"
-          >
-            <div className="relative">
-              <img
-                src={user.avatar}
-                alt={user.displayName}
-                className="w-6 h-6 rounded-full object-cover border border-slate-700"
-              />
-              <span
-                className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-slate-900 ${
-                  user.status === 'online' ? 'bg-emerald-500' : 'bg-amber-500'
-                }`}
-              />
-            </div>
-            <span className="text-[10px] font-semibold mt-0.5">Perfil</span>
+            <span className="text-[9px] font-semibold mt-0.5">Ajustes</span>
           </button>
         </nav>
       )}

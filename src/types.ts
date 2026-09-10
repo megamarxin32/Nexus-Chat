@@ -98,6 +98,24 @@ export interface MessageAttachment {
   driveFileId?: string;
 }
 
+export interface MessageReaction {
+  emoji: string;
+  count: number;
+  users: string[]; // usernames or userIds
+}
+
+export interface ChatPollOption {
+  id: string;
+  text: string;
+  votes: string[]; // user IDs
+}
+
+export interface ChatPoll {
+  question: string;
+  options: ChatPollOption[];
+  multipleAnswers?: boolean;
+}
+
 export interface Message {
   id: string;
   chatId: string;
@@ -113,6 +131,97 @@ export interface Message {
   isSystem?: boolean;
   replyToId?: string;
   translation?: MessageTranslation;
+  reactions?: Record<string, string[]>; // emoji -> list of user IDs
+  priority?: 'normal' | 'important' | 'urgent'; // Teams-style priority banner
+  isPinned?: boolean;
+  poll?: ChatPoll;
+}
+
+export type AppTab = 'chats' | 'channels_status' | 'communities' | 'arcade' | 'workspace' | 'calls';
+
+export interface StatusStory {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  type: 'text' | 'image';
+  content: string; // text body or image data/url
+  backgroundGradient?: string;
+  timestamp: string;
+  expiresAt: string;
+  viewsCount: number;
+  caption?: string;
+  isSelf?: boolean;
+}
+
+export interface BroadcastChannelPost {
+  id: string;
+  channelId: string;
+  title?: string;
+  text: string;
+  imageUrl?: string;
+  timestamp: string;
+  reactions: Record<string, number>; // emoji -> count
+  userReacted?: Record<string, boolean>; // emoji -> boolean
+  views: number;
+  isPinned?: boolean;
+}
+
+export interface BroadcastChannel {
+  id: string;
+  name: string;
+  handle: string;
+  avatar: string;
+  bannerUrl?: string;
+  description: string;
+  subscribersCount: number;
+  isVerified: boolean;
+  creatorId: string;
+  creatorName: string;
+  category: 'noticias' | 'tecnologia' | 'gaming' | 'comunidad' | 'empresa';
+  isFollowing?: boolean;
+  posts: BroadcastChannelPost[];
+}
+
+export interface CommunityChannel {
+  id: string;
+  name: string;
+  type: 'text' | 'voice' | 'announcement';
+  topic?: string;
+  unreadCount?: number;
+}
+
+export interface CommunityVoiceParticipant {
+  id: string;
+  name: string;
+  avatar: string;
+  isMuted: boolean;
+  isSpeaking: boolean;
+}
+
+export interface CommunityMember {
+  id: string;
+  name: string;
+  avatar: string;
+  role: 'owner' | 'admin' | 'moderator' | 'vip' | 'member';
+  status: 'online' | 'idle' | 'dnd' | 'offline';
+  activity?: string; // e.g. "🎮 Jugando a Cyberpunk", "🎧 Escuchando Lo-Fi"
+}
+
+export interface CommunityServer {
+  id: string;
+  name: string;
+  icon: string;
+  bannerUrl?: string;
+  description: string;
+  categories: {
+    id: string;
+    name: string;
+    channels: CommunityChannel[];
+  }[];
+  activeVoiceMembers?: Record<string, CommunityVoiceParticipant[]>; // channelId -> participants
+  members: CommunityMember[];
+  ownerId: string;
 }
 
 export interface Chat {

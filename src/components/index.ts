@@ -14,3 +14,6 @@ export { NewChatModal } from './NewChatModal';
 export { ChatInfoModal } from './ChatInfoModal';
 export { CallHistoryView } from './CallHistoryView';
 export { PcMultiAccountModal } from './PcMultiAccountModal';
+export { ChannelsAndStatusView } from './ChannelsAndStatusView';
+export { CommunitiesView } from './CommunitiesView';
+export { ArcadeLoungeView } from './ArcadeLoungeView';
