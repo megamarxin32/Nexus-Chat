@@ -114,11 +114,20 @@ export class RealChatService {
           }
         }
 
-        // Sort messages chronologically
+        // Sort messages chronologically with robust timestamp and ID extraction
         this.messages[chatId].sort((a, b) => {
-          const tA = new Date(a.timestamp).getTime() || 0;
-          const tB = new Date(b.timestamp).getTime() || 0;
-          return tA - tB;
+          const getMsgOrder = (m: Message) => {
+            if (m.id) {
+              const matches = m.id.match(/\d+/g);
+              if (matches && matches.length > 0) {
+                const num = parseInt(matches[matches.length - 1], 10);
+                if (!isNaN(num) && num > 1000000000) return num;
+              }
+            }
+            const parsed = Date.parse(m.timestamp);
+            return !isNaN(parsed) ? parsed : 0;
+          };
+          return getMsgOrder(a) - getMsgOrder(b);
         });
       }
     }
@@ -332,7 +341,15 @@ export class RealChatService {
     if (!this.messages[chatId]) {
       this.messages[chatId] = [];
     }
-    this.messages[chatId].push(message);
+    const exists = this.messages[chatId].some((m) => m.id === message.id);
+    if (!exists) {
+      this.messages[chatId].push(message);
+    } else {
+      const idx = this.messages[chatId].findIndex((m) => m.id === message.id);
+      if (idx >= 0) {
+        this.messages[chatId][idx] = message;
+      }
+    }
 
     // Update chat last message and move to top
     const chatIndex = this.chats.findIndex((c) => c.id === chatId);

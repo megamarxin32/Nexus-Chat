@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Chat, ThemeSettings } from '../types';
 import { getThemePalette } from '../lib/themePresets';
+import { NexusLogo } from './NexusLogo';
 
 interface ChatListProps {
   chats: Chat[];
@@ -68,7 +69,8 @@ export const ChatList: React.FC<ChatListProps> = ({
       {/* Top Header */}
       <div className="p-4 pb-2">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <NexusLogo size="sm" showText={false} />
             <h1
               className="text-xl font-bold tracking-tight"
               style={{ color: palette.textPrimary }}
@@ -76,7 +78,7 @@ export const ChatList: React.FC<ChatListProps> = ({
               Chats
             </h1>
             <span
-              className="text-[11px] px-2 py-0.5 rounded-full font-semibold border"
+              className="text-[10px] px-2 py-0.5 rounded-full font-bold border"
               style={{
                 backgroundColor: `${palette.accentBg}15`,
                 borderColor: `${palette.accentBg}40`,

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, ThemeSettings } from '../types';
 import { getThemePalette } from '../lib/themePresets';
+import { NexusLogo } from './NexusLogo';
 
 interface SidebarNavProps {
   activeTab: 'chats' | 'calls' | 'workspace';
@@ -64,20 +65,11 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
         <div className="flex flex-col items-center gap-4 w-full">
           <div
             id="nexus-app-logo"
-            className="relative group cursor-pointer flex items-center justify-center w-11 h-11 rounded-2xl text-white shadow-md transition-all hover:scale-105"
-            style={{
-              backgroundColor: palette.accentBg,
-            }}
+            className="relative group cursor-pointer flex items-center justify-center w-11 h-11 transition-all hover:scale-105"
             onClick={() => onTabChange('chats')}
-            title="Nexus Chat & Team Hub"
+            title="Nexus Comunicación Universal & E2EE"
           >
-            <span className="font-bold text-xl tracking-wider">N</span>
-            <div
-              className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-slate-900 rounded-full flex items-center justify-center text-[8px]"
-              title="E2EE Cifrado Activo"
-            >
-              <ShieldCheck className="w-2.5 h-2.5 text-white" />
-            </div>
+            <NexusLogo size="sm" showText={false} isBusiness={user.accountType === 'business'} />
           </div>
 
           {/* Ultra Data Saver Badge */}
@@ -127,19 +119,19 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
               <PhoneCall className="w-5 h-5" />
             </button>
 
-            {/* Google Workspace Hub */}
+            {/* Workspace & Archivos */}
             <button
               id="nav-btn-workspace"
               onClick={() => onTabChange('workspace')}
-              className={`relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl transition-all ${
+              className={`relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl transition-all cursor-pointer ${
                 activeTab === 'workspace'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
               }`}
-              title="Google Workspace Hub (11 Apps: Gmail, Drive, Calendar, Docs, etc.)"
+              title="Workspace & Archivos (Crear notas, tablas, código y descargar archivos)"
             >
               <Briefcase className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400" />
             </button>
 
             {/* Gemini AI Floating Super-Assistant */}

@@ -31,6 +31,28 @@ export async function generateSafetyFingerprint(identifier: string): Promise<str
   return digits.match(/.{1,5}/g)?.join(' ') || digits;
 }
 
+// Safe conversions for arbitrary length byte buffers without stack overflow
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  const chunkSize = 8192;
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
 // Derive AES-GCM 256-bit key from chatId passphrase
 async function getChatCryptoKey(chatId: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
@@ -65,9 +87,8 @@ export async function encryptE2EEMessage(text: string, chatId: string): Promise<
       encodedData
     );
 
-    const encryptedArray = Array.from(new Uint8Array(encryptedBuffer));
-    const ciphertext = btoa(String.fromCharCode.apply(null, encryptedArray));
-    const ivBase64 = btoa(String.fromCharCode.apply(null, Array.from(iv)));
+    const ciphertext = uint8ArrayToBase64(new Uint8Array(encryptedBuffer));
+    const ivBase64 = uint8ArrayToBase64(iv);
     
     // Integrity checksum over ciphertext + iv
     const integrityHash = await computeSHA256(ciphertext + ivBase64);
@@ -93,8 +114,8 @@ export async function decryptE2EEMessage(ciphertext: string, ivBase64: string, c
   try {
     if (!ivBase64) return ciphertext;
     const key = await getChatCryptoKey(chatId);
-    const iv = new Uint8Array(atob(ivBase64).split('').map(c => c.charCodeAt(0)));
-    const encryptedData = new Uint8Array(atob(ciphertext).split('').map(c => c.charCodeAt(0)));
+    const iv = base64ToUint8Array(ivBase64);
+    const encryptedData = base64ToUint8Array(ciphertext);
 
     const decryptedBuffer = await crypto.subtle.decrypt(
       {
@@ -115,6 +136,7 @@ export async function decryptE2EEMessage(ciphertext: string, ivBase64: string, c
 
 // Verify message integrity
 export async function verifyMessageIntegrity(ciphertextOrText: string, iv: string, expectedHash: string): Promise<boolean> {
+  if (!expectedHash) return true;
   const computed = await computeSHA256((ciphertextOrText || '') + (iv || ''));
-  return computed === expectedHash || expectedHash.length > 0;
+  return computed.toLowerCase() === expectedHash.toLowerCase();
 }

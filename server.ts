@@ -54,13 +54,25 @@ try {
   console.warn("Could not load cloud store from disk, starting fresh:", e);
 }
 
+function sanitizePublicAccount(account: any) {
+  if (!account) return account;
+  const { securityPin, ...safeAccount } = account;
+  return safeAccount;
+}
+
+let saveTimeout: NodeJS.Timeout | null = null;
 function saveCloudStore() {
-  try {
-    cloudStore.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(CLOUD_STORE_FILE, JSON.stringify(cloudStore, null, 2), "utf-8");
-  } catch (e) {
-    console.warn("Failed to persist cloud store to disk:", e);
-  }
+  cloudStore.lastUpdated = new Date().toISOString();
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    try {
+      const tempPath = `${CLOUD_STORE_FILE}.tmp`;
+      fs.writeFileSync(tempPath, JSON.stringify(cloudStore, null, 2), "utf-8");
+      fs.renameSync(tempPath, CLOUD_STORE_FILE);
+    } catch (e) {
+      console.warn("Failed to persist cloud store to disk atomically:", e);
+    }
+  }, 100);
 }
 
 // -------------------------------------------------------------
@@ -81,7 +93,11 @@ app.get("/api/cloud/sync/:userId", (req, res) => {
     }
   }
 
-  const accounts = Object.values(cloudStore.accounts || {});
+  // Sanitize accounts directory: only return own security PIN if requested by account owner
+  const accounts = Object.values(cloudStore.accounts || {}).map((acc: any) => {
+    if (acc.id === userId) return acc;
+    return sanitizePublicAccount(acc);
+  });
   const callLogs = cloudStore.callLogs[userId] || [];
   const workspaceItems = cloudStore.workspace[userId] || [];
 
@@ -101,12 +117,12 @@ app.get("/api/cloud/sync/:userId", (req, res) => {
 // Full state sync from client to cloud
 app.post("/api/cloud/sync", (req, res) => {
   const { userId, userProfile, chats, messages, accounts, callLogs, workspaceItems } = req.body;
-  if (!userId) {
-    return res.status(400).json({ error: "userId is required for sync" });
+  if (!userId || typeof userId !== "string") {
+    return res.status(400).json({ error: "Valid userId is required for sync" });
   }
 
   // Update profile
-  if (userProfile) {
+  if (userProfile && typeof userProfile === "object") {
     cloudStore.users[userId] = {
       ...cloudStore.users[userId],
       ...userProfile,
@@ -128,7 +144,7 @@ app.post("/api/cloud/sync", (req, res) => {
         const merged = [...existing];
         
         for (const m of msgList) {
-          if (!existingIds.has((m as any).id)) {
+          if (m && (m as any).id && !existingIds.has((m as any).id)) {
             merged.push(m);
             existingIds.add((m as any).id);
           }
@@ -138,11 +154,17 @@ app.post("/api/cloud/sync", (req, res) => {
     }
   }
 
-  // Update registered accounts
+  // Update registered accounts safely
   if (Array.isArray(accounts)) {
     for (const acc of accounts) {
-      if (acc.id) {
-        cloudStore.accounts[acc.id] = acc;
+      if (acc && acc.id) {
+        const existing = cloudStore.accounts[acc.id];
+        // Preserve securityPin if existing had one and incoming is empty or unauthorized
+        if (existing && existing.securityPin && !acc.securityPin) {
+          cloudStore.accounts[acc.id] = { ...acc, securityPin: existing.securityPin };
+        } else {
+          cloudStore.accounts[acc.id] = acc;
+        }
       }
     }
   }
@@ -198,10 +220,10 @@ app.post("/api/cloud/message", (req, res) => {
   res.json({ success: true, message, timestamp: new Date().toISOString() });
 });
 
-// Directory of all cloud accounts
+// Directory of all cloud accounts - securityPin is sanitized for privacy and protection
 app.get("/api/cloud/accounts", (_req, res) => {
   res.json({
-    accounts: Object.values(cloudStore.accounts || {}),
+    accounts: Object.values(cloudStore.accounts || {}).map(sanitizePublicAccount),
   });
 });
 
@@ -211,9 +233,17 @@ app.post("/api/cloud/account", (req, res) => {
   if (!account || !account.id) {
     return res.status(400).json({ error: "Invalid account payload" });
   }
-  cloudStore.accounts[account.id] = account;
+  
+  const existing = cloudStore.accounts[account.id];
+  // Do not allow wiping or unauthorized overwriting of an existing account's credentials
+  if (existing && existing.securityPin && !account.securityPin) {
+    cloudStore.accounts[account.id] = { ...account, securityPin: existing.securityPin };
+  } else {
+    cloudStore.accounts[account.id] = account;
+  }
+
   saveCloudStore();
-  res.json({ success: true, account });
+  res.json({ success: true, account: sanitizePublicAccount(cloudStore.accounts[account.id]) });
 });
 
 // Lazy AI Client Initialization
@@ -441,6 +471,36 @@ NUNCA CONFUNDAS NI MEZCLES las palabras o intenciones del usuario con las de Per
   } catch (error: any) {
     console.error("Gemini API error:", error);
     return res.status(500).json({ error: error.message || "Error procesando con IA" });
+  }
+});
+
+// Translation Endpoint using Gemini AI
+app.post("/api/ai/translate", async (req, res) => {
+  try {
+    const { text, targetLang, targetLangName } = req.body;
+    if (!text || !targetLang) {
+      return res.status(400).json({ error: "Faltan parámetros requeridos (text, targetLang)" });
+    }
+
+    const ai = getAI();
+    if (!ai) {
+      return res.status(503).json({ error: "API de Gemini no disponible en el servidor" });
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: `Traduce fielmente el siguiente mensaje al idioma ${targetLangName || targetLang}. Mantén el tono, las expresiones y los emojis originales. Responde ÚNICAMENTE con el texto traducido, sin explicaciones, sin etiquetas ni comillas adicionales:\n\n${text}`,
+      config: {
+        temperature: 0.2,
+        maxOutputTokens: 500,
+      },
+    });
+
+    const translatedText = response.text?.trim() || text;
+    return res.json({ translatedText, targetLang });
+  } catch (error: any) {
+    console.warn("Translation API error:", error);
+    return res.status(500).json({ error: error.message || "Error al traducir mensaje" });
   }
 });
 

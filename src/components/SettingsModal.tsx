@@ -151,7 +151,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 3 * 1024 * 1024) {
-        alert('Por favor selecciona una imagen menor a 3MB.');
+        showToast('Por favor selecciona una imagen menor a 3MB.');
         return;
       }
       const reader = new FileReader();
@@ -169,7 +169,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 4 * 1024 * 1024) {
-        alert('Por favor selecciona una imagen menor a 4MB.');
+        showToast('Por favor selecciona una imagen menor a 4MB.');
         return;
       }
       const reader = new FileReader();
@@ -209,7 +209,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Save security changes
   const handleSaveSecurity = () => {
     if (securityPin.length < 4) {
-      alert('El PIN debe tener al menos 4 dígitos para proteger tu cuenta.');
+      showToast('El PIN debe tener al menos 4 dígitos para proteger tu cuenta.');
       return;
     }
 

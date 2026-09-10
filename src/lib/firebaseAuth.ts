@@ -63,39 +63,10 @@ export const initAuth = (
   });
 };
 
-// Sign in with Google (Firebase popup with forced account chooser)
-export const signInWithGoogle = async (): Promise<{ user: User; accessToken: string } | null> => {
-  try {
-    isSigningIn = true;
-    // Always sign out from Firebase instance first so Google displays account chooser dialog
-    try {
-      await signOut(auth);
-    } catch {
-      // ignore
-    }
-
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({
-      prompt: 'select_account',
-    });
-
-    WORKSPACE_SCOPES.forEach((scope) => {
-      provider.addScope(scope);
-    });
-
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      console.warn('No access token returned from Google credential');
-    }
-    cachedAccessToken = credential?.accessToken || 'simulated_authorized_token';
-    return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error: any) {
-    console.error('Google Sign In Error:', error);
-    throw error;
-  } finally {
-    isSigningIn = false;
-  }
+// Deprecated Google Sign In (removed per directive: universal authentication via email, username, phone)
+export const signInWithGoogle = async (): Promise<{ user: any; accessToken: string } | null> => {
+  console.info('Google OAuth has been disabled in favor of universal Nexus credentials (username, email, phone).');
+  return null;
 };
 
 // Email & Password Registration

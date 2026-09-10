@@ -29,6 +29,7 @@ export const DevicesModal: React.FC<DevicesModalProps> = ({
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncSuccess, setSyncSuccess] = useState(false);
+  const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -140,16 +141,33 @@ export const DevicesModal: React.FC<DevicesModalProps> = ({
                 </div>
 
                 {!device.isCurrent && (
-                  <button
-                    onClick={() => {
-                      const confirmed = window.confirm(`¿Deseas desvincular ${device.name}?`);
-                      if (confirmed) onRevokeDevice(device.id);
-                    }}
-                    className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0"
-                    title="Cerrar sesión en este dispositivo"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  confirmRevokeId === device.id ? (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => {
+                          onRevokeDevice(device.id);
+                          setConfirmRevokeId(null);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold transition-all cursor-pointer shadow-sm"
+                      >
+                        Sí, revocar
+                      </button>
+                      <button
+                        onClick={() => setConfirmRevokeId(null)}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition-all cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmRevokeId(device.id)}
+                      className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0 cursor-pointer"
+                      title="Cerrar sesión en este dispositivo"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )
                 )}
               </div>
             ))}

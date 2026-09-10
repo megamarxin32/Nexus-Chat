@@ -43,6 +43,7 @@ export const CallHistoryView: React.FC<CallHistoryViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewCallModal, setShowNewCallModal] = useState(false);
   const [newCallSearch, setNewCallSearch] = useState('');
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const palette = getThemePalette(themeSettings);
 
@@ -110,17 +111,34 @@ export const CallHistoryView: React.FC<CallHistoryViewProps> = ({
 
         <div className="flex items-center gap-2">
           {callLogs.length > 0 && (
-            <button
-              onClick={() => {
-                if (confirm('¿Vaciar todo el historial de llamadas?')) {
-                  onClearCallLogs();
-                }
-              }}
-              className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-all cursor-pointer"
-              title="Borrar historial"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            confirmClear ? (
+              <div className="flex items-center gap-1.5 bg-slate-800/80 px-2 py-1 rounded-xl border border-slate-700">
+                <span className="text-[11px] text-slate-300">¿Vaciar?</span>
+                <button
+                  onClick={() => {
+                    onClearCallLogs();
+                    setConfirmClear(false);
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold transition-all cursor-pointer"
+                >
+                  Sí
+                </button>
+                <button
+                  onClick={() => setConfirmClear(false)}
+                  className="px-1.5 py-0.5 rounded-lg text-slate-400 hover:text-white text-[11px] transition-all cursor-pointer"
+                >
+                  No
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmClear(true)}
+                className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-all cursor-pointer"
+                title="Borrar historial"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )
           )}
 
           <button

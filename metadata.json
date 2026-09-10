@@ -1,6 +1,6 @@
 {
   "name": "Nexus Chat & Team Hub",
-  "description": "Red social y mensajería segura con cifrado E2EE, chats grupales, integración con Google Workspace, videollamadas Meet, IA Gemini y modo ultra ahorro de datos.",
+  "description": "Plataforma de comunicación universal y mensajería con cifrado E2EE, notas de voz, fotos, vídeos, traducción instantánea, protector de enlaces seguros, cuentas para empresas, creador de archivos descargables y soporte multicuenta.",
   "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

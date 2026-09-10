@@ -11,6 +11,25 @@ export interface ConnectedDevice {
   e2eeKeySynced: boolean;
 }
 
+export type AccountType = 'personal' | 'business';
+
+export interface BusinessProfile {
+  companyName: string;
+  category: string;
+  website?: string;
+  verified: boolean;
+  businessHours?: string;
+  autoReply?: string;
+  address?: string;
+}
+
+export interface MessageTranslation {
+  targetLang: string;
+  langName: string;
+  text: string;
+  translatedAt: string;
+}
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -25,7 +44,7 @@ export interface UserProfile {
   e2eeFingerprint: string;
   joinedDate: string;
   devices: ConnectedDevice[];
-  isGoogleConnected: boolean;
+  isGoogleConnected?: boolean;
   securityPin?: string;
   twoFactorEnabled?: boolean;
   requireDeviceApproval?: boolean;
@@ -34,6 +53,8 @@ export interface UserProfile {
   isMinor?: boolean;
   parentalControl?: ParentalControlSettings;
   linkedChildren?: LinkedChildProfile[];
+  accountType?: AccountType;
+  businessProfile?: BusinessProfile;
 }
 
 export interface ParentalControlSettings {
@@ -91,6 +112,7 @@ export interface Message {
   attachments?: MessageAttachment[];
   isSystem?: boolean;
   replyToId?: string;
+  translation?: MessageTranslation;
 }
 
 export interface Chat {
@@ -147,6 +169,10 @@ export interface WorkspaceItem {
   status?: string;
   linkUrl?: string;
   contentSnippet?: string;
+  content?: string;
+  fileExtension?: string;
+  fileSizeBytes?: number;
+  dataUrl?: string;
   badge?: string;
   color?: string;
 }

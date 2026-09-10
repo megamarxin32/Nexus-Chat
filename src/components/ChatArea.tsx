@@ -22,6 +22,11 @@ import {
   Briefcase,
   X,
   ArrowLeft,
+  Download,
+  Languages,
+  Globe,
+  Film,
+  Play,
 } from 'lucide-react';
 import { Chat, Message, UserProfile, ThemeSettings, MessageAttachment } from '../types';
 import { dataSaver } from '../lib/dataSaver';
@@ -29,7 +34,10 @@ import { encryptE2EEMessage, decryptE2EEMessage } from '../lib/crypto';
 import { notificationService } from '../lib/notifications';
 import { ChatWallpaper } from './ChatWallpaper';
 import { ChatInfoModal } from './ChatInfoModal';
+import { AudioPlayerMessage } from './AudioPlayerMessage';
 import { BUBBLE_COLOR_MAP, getThemePalette } from '../lib/themePresets';
+import { LinkGuardModal } from './LinkGuardModal';
+import { translateMessageText, SUPPORTED_LANGUAGES } from '../lib/translatorService';
 
 interface ChatAreaProps {
   chat?: Chat | null;
@@ -73,9 +81,87 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [downloadedMedia, setDownloadedMedia] = useState<Record<string, boolean>>({});
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [audioTimer, setAudioTimer] = useState(0);
+  const [activeLightboxImage, setActiveLightboxImage] = useState<{ url: string; name: string } | null>(null);
+  const [activeVideoModal, setActiveVideoModal] = useState<{ url: string; name: string } | null>(null);
+
+  // Safe Link Guard State
+  const [activeLinkForGuard, setActiveLinkForGuard] = useState<string | null>(null);
+  const [trustedDomains, setTrustedDomains] = useState<Set<string>>(new Set());
+
+  // Message Translation State
+  const [translations, setTranslations] = useState<
+    Record<string, { translatedText: string; targetLangName: string; isTranslating?: boolean }>
+  >({});
+  const [activeLangPickerMsgId, setActiveLangPickerMsgId] = useState<string | null>(null);
+
+  // Link Guard Handler
+  const handleLinkClick = (url: string) => {
+    let hostname = '';
+    try {
+      hostname = new URL(url).hostname.toLowerCase();
+    } catch {
+      hostname = url;
+    }
+
+    if (trustedDomains.has(hostname)) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    setActiveLinkForGuard(url);
+  };
+
+  const handleConfirmOpenLink = (url: string, trustDomain?: boolean) => {
+    if (trustDomain) {
+      try {
+        const hostname = new URL(url).hostname.toLowerCase();
+        setTrustedDomains((prev) => new Set(prev).add(hostname));
+      } catch {
+        // ignore
+      }
+    }
+    setActiveLinkForGuard(null);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  // Message Translation Handler
+  const handleTranslate = async (msgId: string, text: string, langCode = 'es') => {
+    setTranslations((prev) => ({
+      ...prev,
+      [msgId]: {
+        translatedText: 'Traduciendo...',
+        targetLangName: '',
+        isTranslating: true,
+      },
+    }));
+
+    try {
+      const result = await translateMessageText(text, langCode);
+      setTranslations((prev) => ({
+        ...prev,
+        [msgId]: {
+          translatedText: result.translatedText,
+          targetLangName: result.targetLangName,
+          isTranslating: false,
+        },
+      }));
+    } catch {
+      setTranslations((prev) => ({
+        ...prev,
+        [msgId]: {
+          translatedText: 'Error al traducir.',
+          targetLangName: '',
+          isTranslating: false,
+        },
+      }));
+    }
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioStreamRef = useRef<MediaStream | null>(null);
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -250,45 +336,178 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         reader.readAsDataURL(file);
         return;
       }
-    } else {
-      // Document
+    } else if (file.type.startsWith('video/')) {
+      // Video upload (HD preview and inline video playback)
       dataSaver.recordTransfer(file.size, 'sent');
-      attachment = {
-        id: 'att_' + Date.now(),
-        name: file.name,
-        type: 'doc',
-        url: '#',
-        sizeBytes: file.size,
-        quality: 'original_hd',
-        mimeType: file.type || 'application/octet-stream',
+      const reader = new FileReader();
+      reader.onload = () => {
+        const videoAttachment: MessageAttachment = {
+          id: 'att_' + Date.now(),
+          name: file.name,
+          type: 'video',
+          url: reader.result as string,
+          sizeBytes: file.size,
+          quality: 'original_hd',
+          mimeType: file.type || 'video/mp4',
+        };
+        onSendMessage(`🎥 Video adjunto: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`, [videoAttachment]);
       };
+      reader.readAsDataURL(file);
+      return;
+    } else {
+      // Document: Read as base64 Data URL so it can be truly downloaded
+      dataSaver.recordTransfer(file.size, 'sent');
+      const reader = new FileReader();
+      reader.onload = () => {
+        const docAttachment: MessageAttachment = {
+          id: 'att_' + Date.now(),
+          name: file.name,
+          type: 'doc',
+          url: (reader.result as string) || '#',
+          sizeBytes: file.size,
+          quality: 'original_hd',
+          mimeType: file.type || 'application/octet-stream',
+        };
+        onSendMessage(`📎 Archivo adjunto: ${file.name}`, [docAttachment]);
+      };
+      reader.readAsDataURL(file);
+      return;
     }
 
     onSendMessage(`📎 Archivo adjunto: ${file.name}`, [attachment]);
   };
 
-  // Toggle voice recording
-  const handleToggleAudioRecord = () => {
+  // Stop recording and send audio
+  const handleStopAndSendAudio = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.warn('Error stopping media recorder', e);
+      }
+    }
+
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((t) => t.stop());
+      audioStreamRef.current = null;
+    }
+
+    setIsRecordingAudio(false);
+  };
+
+  // Cancel voice recording cleanly
+  const handleCancelAudioRecord = () => {
+    audioChunksRef.current = [];
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.warn('Error stopping media recorder on cancel', e);
+      }
+    }
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((t) => t.stop());
+      audioStreamRef.current = null;
+    }
+    setIsRecordingAudio(false);
+    setAudioTimer(0);
+  };
+
+  // Toggle or start voice recording
+  const handleToggleAudioRecord = async () => {
     if (isRecordingAudio) {
-      // Finish recording and send
-      setIsRecordingAudio(false);
-      const audioAttachment: MessageAttachment = {
-        id: 'aud_' + Date.now(),
-        name: `Nota_de_voz_${audioTimer}s.aac`,
-        type: 'audio',
-        url: '#',
-        sizeBytes: audioTimer * 1200,
-        quality: themeSettings.dataSaverEnabled ? 'compressed_lite' : 'original_hd',
-        mimeType: 'audio/aac',
-      };
-      onSendMessage(`🎤 Nota de voz (${audioTimer}s) [Cifrado E2EE]`, [audioAttachment]);
+      handleStopAndSendAudio();
     } else {
-      setIsRecordingAudio(true);
+      audioChunksRef.current = [];
+      setAudioTimer(0);
+
+      try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          audioStreamRef.current = stream;
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = mediaRecorder;
+
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+              audioChunksRef.current.push(e.data);
+            }
+          };
+
+          mediaRecorder.onstop = () => {
+            if (audioChunksRef.current.length > 0) {
+              const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const audioUrl = (reader.result as string) || '#';
+                const audioAttachment: MessageAttachment = {
+                  id: 'aud_' + Date.now(),
+                  name: `Nota_de_voz_${audioTimer || 1}s.webm`,
+                  type: 'audio',
+                  url: audioUrl,
+                  sizeBytes: audioBlob.size,
+                  quality: themeSettings.dataSaverEnabled ? 'compressed_lite' : 'original_hd',
+                  mimeType: 'audio/webm',
+                };
+                onSendMessage(`🎤 Nota de voz (${audioTimer || 1}s) [Cifrado E2EE]`, [audioAttachment]);
+              };
+              reader.readAsDataURL(audioBlob);
+            } else {
+              // Fallback audio attachment
+              const audioAttachment: MessageAttachment = {
+                id: 'aud_' + Date.now(),
+                name: `Nota_de_voz_${audioTimer || 1}s.aac`,
+                type: 'audio',
+                url: '#',
+                sizeBytes: (audioTimer || 1) * 1200,
+                quality: themeSettings.dataSaverEnabled ? 'compressed_lite' : 'original_hd',
+                mimeType: 'audio/aac',
+              };
+              onSendMessage(`🎤 Nota de voz (${audioTimer || 1}s) [Cifrado E2EE]`, [audioAttachment]);
+            }
+          };
+
+          mediaRecorder.start(250);
+          setIsRecordingAudio(true);
+        } else {
+          // Fallback if mediaDevices not available
+          setIsRecordingAudio(true);
+        }
+      } catch (err) {
+        console.warn('Microphone permission not granted or unavailable, starting simulated recording:', err);
+        setIsRecordingAudio(true);
+      }
     }
   };
 
   const isDark = themeSettings.mode !== 'light';
   const palette = getThemePalette(themeSettings);
+
+  const renderMessageContent = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return parts.map((part, idx) => {
+      if (part.match(urlRegex)) {
+        return (
+          <button
+            key={idx}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleLinkClick(part);
+            }}
+            className="inline-flex items-center gap-0.5 text-cyan-300 hover:text-cyan-100 underline underline-offset-2 font-medium break-all cursor-pointer transition-colors bg-cyan-950/40 px-1 py-0.5 rounded my-0.5"
+            title="Abrir enlace de forma segura con Link Guard"
+          >
+            <span>{part}</span>
+            <ExternalLink className="w-3 h-3 shrink-0 inline opacity-90 ml-0.5" />
+          </button>
+        );
+      }
+      return <span key={idx}>{part}</span>;
+    });
+  };
 
   if (!chat) {
     return (
@@ -323,13 +542,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               className="text-xl font-bold"
               style={{ color: palette.textPrimary }}
             >
-              Nexus Chat & Team Hub
+              Nexus Comunicación Universal
             </h2>
             <p
               className="text-xs leading-relaxed"
               style={{ color: palette.textSecondary }}
             >
-              Mensajería segura con cifrado de extremo a extremo (E2EE) y acceso directo al ecosistema de Google Workspace.
+              Mensajería privada ultrarrápida con cifrado de extremo a extremo (E2EE), traducción en vivo de idiomas, protección de enlaces y workspace local.
             </p>
           </div>
 
@@ -650,13 +869,55 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     className={`whitespace-pre-wrap break-words ${fontSizeClass} leading-relaxed`}
                     style={{ color: palette.textPrimary }}
                   >
-                    {msg.text}
+                    {renderMessageContent(msg.text)}
                   </div>
+
+                  {/* Inline Translation Display */}
+                  {translations[msg.id] && (
+                    <div className="mt-2 p-2 rounded-xl bg-blue-950/50 border border-blue-800/50 text-xs max-w-sm">
+                      <div className="flex items-center justify-between text-[10px] text-blue-300 font-semibold mb-1">
+                        <span className="flex items-center gap-1">
+                          <Globe className="w-3 h-3 text-cyan-400" />
+                          Traducción ({translations[msg.id].targetLangName || 'Español'})
+                        </span>
+                        {translations[msg.id].isTranslating && (
+                          <span className="text-[10px] text-cyan-400 animate-pulse">traduciendo...</span>
+                        )}
+                      </div>
+                      <p className="text-slate-100">{translations[msg.id].translatedText}</p>
+                    </div>
+                  )}
+
                   {/* Attachments rendering */}
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div className="mt-2 space-y-2">
                       {msg.attachments.map((att) => {
                         const isDownloaded = !themeSettings.dataSaverEnabled || downloadedMedia[att.id];
+                        if (att.type === 'audio') {
+                          return (
+                            <div key={att.id} className="p-1 rounded-2xl bg-black/30 border border-slate-700/50 max-w-sm">
+                              <AudioPlayerMessage url={att.url} name={att.name} isMe={isMe} />
+                            </div>
+                          );
+                        }
+
+                        if (att.type === 'video') {
+                          return (
+                            <div key={att.id} className="rounded-xl overflow-hidden border border-slate-700/60 bg-black/40 max-w-sm">
+                              <video
+                                src={att.url}
+                                controls
+                                playsInline
+                                className="w-full max-h-60 object-contain bg-black rounded-lg"
+                              />
+                              <div className="p-1 px-2 bg-black/60 text-[10px] text-slate-300 flex justify-between">
+                                <span className="truncate">{att.name}</span>
+                                <span className="text-cyan-400">Video</span>
+                              </div>
+                            </div>
+                          );
+                        }
+
                         if (att.type === 'image') {
                           return (
                             <div key={att.id} className="rounded-xl overflow-hidden border border-slate-700/60 bg-black/20 max-w-sm">
@@ -665,7 +926,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                                   src={att.url}
                                   alt={att.name}
                                   className="w-full max-h-72 object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                                  onClick={() => window.open(att.url, '_blank')}
+                                  onClick={() => setActiveLightboxImage({ url: att.url, name: att.name })}
                                 />
                               ) : (
                                 <div className="p-4 flex flex-col items-center justify-center gap-2 bg-slate-900/80 text-center">
@@ -685,10 +946,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             </div>
                           );
                         }
+
                         return (
-                          <div key={att.id} className="flex items-center gap-2 p-2 rounded-xl bg-black/20 border border-slate-700/50 text-xs max-w-sm">
-                            <FileText className="w-4 h-4 text-blue-400 shrink-0" />
-                            <span className="truncate flex-1">{att.name}</span>
+                          <div key={att.id} className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-black/20 border border-slate-700/50 text-xs max-w-sm">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="w-4 h-4 text-blue-400 shrink-0" />
+                              <div className="min-w-0">
+                                <span className="truncate block font-medium text-slate-200">{att.name}</span>
+                                <span className="text-[10px] text-slate-400">{dataSaver.formatBytes(att.sizeBytes)} • E2EE</span>
+                              </div>
+                            </div>
+                            {att.url && att.url !== '#' && (
+                              <a
+                                href={att.url}
+                                download={att.name}
+                                className="p-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 transition-colors shrink-0"
+                                title="Descargar archivo"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </a>
+                            )}
                           </div>
                         );
                       })}
@@ -742,8 +1019,24 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       }
                 }
               >
-                {/* Text Content */}
-                <div className="whitespace-pre-wrap break-words">{msg.text}</div>
+                {/* Text Content with Safe Link Guard Detection */}
+                <div className="whitespace-pre-wrap break-words">{renderMessageContent(msg.text)}</div>
+
+                {/* Inline Translation Display */}
+                {translations[msg.id] && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-blue-950/70 border border-blue-800/60 text-xs">
+                    <div className="flex items-center justify-between text-[10px] text-blue-300 font-semibold mb-1">
+                      <span className="flex items-center gap-1">
+                        <Globe className="w-3 h-3 text-cyan-400" />
+                        Traducción ({translations[msg.id].targetLangName || 'Español'})
+                      </span>
+                      {translations[msg.id].isTranslating && (
+                        <span className="text-[10px] text-cyan-400 animate-pulse">traduciendo...</span>
+                      )}
+                    </div>
+                    <p className="text-slate-100 font-normal leading-relaxed">{translations[msg.id].translatedText}</p>
+                  </div>
+                )}
 
                 {/* Attachments rendering */}
                 {msg.attachments && msg.attachments.length > 0 && (
@@ -751,6 +1044,37 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     {msg.attachments.map((att) => {
                       const isDownloaded =
                         !themeSettings.dataSaverEnabled || downloadedMedia[att.id];
+
+                      if (att.type === 'audio') {
+                        return (
+                          <div key={att.id} className="p-1 rounded-2xl bg-black/30 border border-slate-700/50">
+                            <AudioPlayerMessage url={att.url} name={att.name} isMe={isMe} />
+                          </div>
+                        );
+                      }
+
+                      if (att.type === 'video') {
+                        return (
+                          <div
+                            key={att.id}
+                            className="rounded-xl overflow-hidden border border-slate-700/60 bg-black/50"
+                          >
+                            <video
+                              src={att.url}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              className="w-full max-h-72 object-contain bg-black rounded-lg"
+                            />
+                            <div className="p-1.5 px-2 bg-black/60 text-[10px] flex items-center justify-between text-slate-300">
+                              <span className="truncate">{att.name}</span>
+                              <span className="font-mono text-cyan-400">
+                                {dataSaver.formatBytes(att.sizeBytes)} • Video
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      }
 
                       if (att.type === 'image') {
                         return (
@@ -763,7 +1087,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                                 src={att.url}
                                 alt={att.name}
                                 className="w-full max-h-72 object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                                onClick={() => window.open(att.url, '_blank')}
+                                onClick={() => setActiveLightboxImage({ url: att.url, name: att.name })}
                               />
                             ) : (
                               /* Data-saver preview placeholder */
@@ -802,30 +1126,47 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       return (
                         <div
                           key={att.id}
-                          className="flex items-center gap-2.5 p-2 rounded-xl bg-black/20 border border-slate-700/50 text-xs"
+                          className="flex items-center justify-between gap-2.5 p-2.5 rounded-xl bg-black/20 border border-slate-700/50 text-xs"
                         >
-                          <FileText className="w-5 h-5 text-blue-400 shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <p className="font-medium truncate">{att.name}</p>
-                            <p className="text-[10px] text-slate-300 opacity-80">
-                              {dataSaver.formatBytes(att.sizeBytes)} • Cifrado E2EE
-                            </p>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="w-5 h-5 text-blue-400 shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium truncate text-slate-200">{att.name}</p>
+                              <p className="text-[10px] text-slate-400">
+                                {dataSaver.formatBytes(att.sizeBytes)} • Cifrado E2EE
+                              </p>
+                            </div>
                           </div>
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-300">
-                            Listo
-                          </span>
+                          {att.url && att.url !== '#' && (
+                            <a
+                              href={att.url}
+                              download={att.name}
+                              className="p-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 transition-colors shrink-0"
+                              title="Descargar archivo"
+                            >
+                              <Download className="w-4 h-4" />
+                            </a>
+                          )}
                         </div>
                       );
                     })}
                   </div>
                 )}
 
-                {/* Bubble Footer: Timestamp, E2EE check & Status */}
+                {/* Bubble Footer: Timestamp, E2EE check & Status & Translation action */}
                 <div
                   className={`flex items-center justify-end gap-1.5 mt-1 text-[10px] select-none ${
                     isMe ? 'opacity-85' : 'text-slate-400'
                   }`}
                 >
+                  <button
+                    type="button"
+                    onClick={() => handleTranslate(msg.id, msg.text, 'es')}
+                    className="p-0.5 rounded hover:bg-black/20 text-slate-300 hover:text-white transition-all cursor-pointer mr-0.5"
+                    title="Traducir mensaje"
+                  >
+                    <Languages className="w-3 h-3" />
+                  </button>
                   <span title="Cifrado E2EE verificado por SHA-256">
                     <Lock className="w-2.5 h-2.5 text-emerald-400 inline mr-0.5" />
                   </span>
@@ -942,12 +1283,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               }}
               className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 transition-colors text-left border-t border-slate-800"
             >
-              <div className="w-4 h-4 rounded bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[9px]">
-                ▲
-              </div>
+              <Briefcase className="w-4 h-4 text-indigo-400" />
               <div>
-                <p className="font-medium">Vincular desde Google Drive</p>
-                <p className="text-[10px] text-slate-400">Archivos sincronizados del equipo</p>
+                <p className="font-medium">Abrir Workspace & Archivos</p>
+                <p className="text-[10px] text-slate-400">Crear o adjuntar notas, tablas y código</p>
               </div>
             </button>
           </div>
@@ -1001,14 +1340,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setIsRecordingAudio(false)}
-                className="text-xs px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
+                onClick={handleCancelAudioRecord}
+                className="text-xs px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleToggleAudioRecord}
-                className="text-xs px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold"
+                className="text-xs px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold transition-colors cursor-pointer shadow-sm"
               >
                 Enviar audio
               </button>
@@ -1103,6 +1442,65 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           onStartDirectChat={onStartDirectChat}
           onStartCall={onStartCall}
           themeSettings={themeSettings}
+        />
+      )}
+
+      {/* Fullscreen Image Lightbox Modal */}
+      {activeLightboxImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col animate-fade-in"
+          onClick={() => setActiveLightboxImage(null)}
+        >
+          {/* Lightbox Header */}
+          <div
+            className="flex items-center justify-between px-6 py-4 bg-black/40 text-white border-b border-white/10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <ImageIcon className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold truncate">{activeLightboxImage.name}</p>
+                <p className="text-[11px] text-slate-400">Visor de fotos E2EE de Nexus</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <a
+                href={activeLightboxImage.url}
+                download={activeLightboxImage.name}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
+                title="Descargar imagen a tamaño completo"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">Descargar</span>
+              </a>
+              <button
+                onClick={() => setActiveLightboxImage(null)}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
+                title="Cerrar visor"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Lightbox Image Stage */}
+          <div className="flex-1 flex items-center justify-center p-4 select-none overflow-hidden">
+            <img
+              src={activeLightboxImage.url}
+              alt={activeLightboxImage.name}
+              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl transition-transform"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Safe Link Guard Modal (Protects against phishing & unsafe links) */}
+      {activeLinkForGuard && (
+        <LinkGuardModal
+          url={activeLinkForGuard}
+          onConfirm={handleConfirmOpenLink}
+          onCancel={() => setActiveLinkForGuard(null)}
         />
       )}
     </div>

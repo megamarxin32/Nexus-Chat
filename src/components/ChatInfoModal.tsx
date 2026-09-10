@@ -60,8 +60,15 @@ export const ChatInfoModal: React.FC<ChatInfoModalProps> = ({
   const [activeMenuMemberId, setActiveMenuMemberId] = useState<string | null>(null);
   const [copiedFingerprint, setCopiedFingerprint] = useState(false);
   const [confirmRemoveMember, setConfirmRemoveMember] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<'leave' | 'deleteGroup' | 'deleteChat' | null>(null);
 
   const palette = getThemePalette(themeSettings);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   if (!isOpen || !chat) return null;
 
@@ -195,12 +202,12 @@ export const ChatInfoModal: React.FC<ChatInfoModalProps> = ({
 
     const isTargetAdmin = adminIds.includes(targetId);
     if (!isCreator && isTargetAdmin) {
-      alert('Solo el creador del grupo puede eliminar o cambiar administradores.');
+      showToast('Solo el creador del grupo puede eliminar o cambiar administradores.');
       return;
     }
 
     if (!isAdmin) {
-      alert('Solo los administradores o el creador pueden eliminar miembros.');
+      showToast('Solo los administradores o el creador pueden eliminar miembros.');
       return;
     }
 
@@ -215,6 +222,7 @@ export const ChatInfoModal: React.FC<ChatInfoModalProps> = ({
 
     setConfirmRemoveMember(null);
     setActiveMenuMemberId(null);
+    showToast('Miembro eliminado del grupo');
   };
 
   // 4. Add new member (Admins or Creator)
@@ -228,26 +236,26 @@ export const ChatInfoModal: React.FC<ChatInfoModalProps> = ({
       members: newMembers,
     });
     setShowAddMemberModal(false);
+    showToast('Miembro añadido al grupo');
   };
 
   // 5. Leave group (CurrentUser)
-  const handleLeaveGroup = () => {
-    if (confirm('¿Estás seguro de que deseas salir de este grupo?')) {
-      const newMembers = chat.members.filter((id) => id !== currentUser.id);
-      const newAdmins = adminIds.filter((id) => id !== currentUser.id);
+  const executeLeaveGroup = () => {
+    const newMembers = chat.members.filter((id) => id !== currentUser.id);
+    const newAdmins = adminIds.filter((id) => id !== currentUser.id);
 
-      if (newMembers.length === 0 && onDeleteChat) {
-        onDeleteChat(chat.id);
-      } else {
-        onUpdateChat({
-          ...chat,
-          members: newMembers,
-          adminIds: newAdmins,
-          creatorId: isCreator ? newMembers[0] : creatorId,
-        });
-      }
-      onClose();
+    if (newMembers.length === 0 && onDeleteChat) {
+      onDeleteChat(chat.id);
+    } else {
+      onUpdateChat({
+        ...chat,
+        members: newMembers,
+        adminIds: newAdmins,
+        creatorId: isCreator ? newMembers[0] : creatorId,
+      });
     }
+    setConfirmAction(null);
+    onClose();
   };
 
   const handleCopySecurityCode = () => {
@@ -662,44 +670,108 @@ export const ChatInfoModal: React.FC<ChatInfoModalProps> = ({
 
           {/* Group / Chat Exit actions */}
           <div className="pt-2 border-t border-slate-800 space-y-2">
+            {toastMessage && (
+              <div className="p-2.5 rounded-xl bg-blue-950/80 border border-blue-500/40 text-blue-300 text-xs text-center font-medium animate-fade-in">
+                {toastMessage}
+              </div>
+            )}
+
             {isGroup ? (
               <>
-                <button
-                  onClick={handleLeaveGroup}
-                  className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Salir del grupo</span>
-                </button>
+                {confirmAction === 'leave' ? (
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-rose-500/40 space-y-2 text-center">
+                    <p className="text-xs text-slate-300">¿Estás seguro de que deseas salir de este grupo?</p>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={executeLeaveGroup}
+                        className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md"
+                      >
+                        Sí, salir
+                      </button>
+                      <button
+                        onClick={() => setConfirmAction(null)}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-all cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmAction('leave')}
+                    className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Salir del grupo</span>
+                  </button>
+                )}
 
                 {isCreator && onDeleteChat && (
-                  <button
-                    onClick={() => {
-                      if (confirm('¿Eliminar este grupo definitivamente para todos los miembros?')) {
-                        onDeleteChat(chat.id);
-                        onClose();
-                      }
-                    }}
-                    className="w-full flex items-center justify-center gap-2 p-2.5 rounded-2xl bg-slate-900 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 text-xs transition-all cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Eliminar grupo definitivamente</span>
-                  </button>
+                  confirmAction === 'deleteGroup' ? (
+                    <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-600/50 space-y-2 text-center">
+                      <p className="text-xs text-rose-200">¿Eliminar este grupo para todos los miembros definitivamente?</p>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => {
+                            onDeleteChat(chat.id);
+                            setConfirmAction(null);
+                            onClose();
+                          }}
+                          className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md"
+                        >
+                          Sí, eliminar grupo
+                        </button>
+                        <button
+                          onClick={() => setConfirmAction(null)}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-all cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmAction('deleteGroup')}
+                      className="w-full flex items-center justify-center gap-2 p-2.5 rounded-2xl bg-slate-900 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 text-xs transition-all cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Eliminar grupo definitivamente</span>
+                    </button>
+                  )
                 )}
               </>
             ) : (
-              <button
-                onClick={() => {
-                  if (confirm('¿Deseas cerrar y eliminar este chat?')) {
-                    if (onDeleteChat) onDeleteChat(chat.id);
-                    onClose();
-                  }
-                }}
-                className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>Eliminar chat</span>
-              </button>
+              confirmAction === 'deleteChat' ? (
+                <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-600/50 space-y-2 text-center">
+                  <p className="text-xs text-rose-200">¿Deseas cerrar y eliminar este chat?</p>
+                  <div className="flex items-center justify-center gap-2">
+                    <button
+                      onClick={() => {
+                        if (onDeleteChat) onDeleteChat(chat.id);
+                        setConfirmAction(null);
+                        onClose();
+                      }}
+                      className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md"
+                    >
+                      Sí, eliminar
+                    </button>
+                    <button
+                      onClick={() => setConfirmAction(null)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-all cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmAction('deleteChat')}
+                  className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Eliminar chat</span>
+                </button>
+              )
             )}
           </div>
         </div>

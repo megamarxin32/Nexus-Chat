@@ -32,6 +32,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   const [isVideoOff, setIsVideoOff] = useState(!isVideo);
   const [duration, setDuration] = useState(0);
   const [streamActive, setStreamActive] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
@@ -40,27 +41,30 @@ export const CallModal: React.FC<CallModalProps> = ({
   const meetRoomUrl =
     chat.meetActiveRoom || `https://meet.google.com/nex-${chat.id.replace(/[^a-z0-9]/gi, '').slice(0, 8)}-hub`;
 
-  // Start local media stream if video enabled
+  // Start local media stream (both voice and video calls)
   useEffect(() => {
     if (!isOpen) return;
 
     let mounted = true;
-    if (isVideo && !isVideoOff && navigator.mediaDevices?.getUserMedia) {
+    if (navigator.mediaDevices?.getUserMedia) {
       navigator.mediaDevices
-        .getUserMedia({ video: true, audio: true })
+        .getUserMedia({
+          audio: true,
+          video: isVideo && !isVideoOff,
+        })
         .then((stream) => {
           if (!mounted) {
             stream.getTracks().forEach((t) => t.stop());
             return;
           }
           localStreamRef.current = stream;
-          if (videoRef.current) {
+          if (videoRef.current && isVideo && !isVideoOff) {
             videoRef.current.srcObject = stream;
           }
           setStreamActive(true);
         })
         .catch((err) => {
-          console.warn('Camera/Mic permission not granted, showing avatar placeholder:', err);
+          console.warn('Microphone/Camera permission not granted or device absent:', err);
           setStreamActive(false);
         });
     }
@@ -83,17 +87,33 @@ export const CallModal: React.FC<CallModalProps> = ({
   if (!isOpen) return null;
 
   const toggleMute = () => {
-    setIsMuted((v) => !v);
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = isMuted));
-    }
+    setIsMuted((prev) => {
+      const next = !prev;
+      if (localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach((t) => {
+          t.enabled = !next;
+        });
+      }
+      return next;
+    });
   };
 
   const toggleVideo = () => {
-    setIsVideoOff((v) => !v);
-    if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = isVideoOff));
-    }
+    setIsVideoOff((prev) => {
+      const next = !prev;
+      if (localStreamRef.current) {
+        localStreamRef.current.getVideoTracks().forEach((t) => {
+          t.enabled = !next;
+        });
+      }
+      return next;
+    });
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(meetRoomUrl).catch(() => {});
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
   };
 
   const formatTimer = (secs: number) => {
@@ -117,18 +137,27 @@ export const CallModal: React.FC<CallModalProps> = ({
             </span>
           </div>
 
-          {/* Google Meet official link */}
-          <a
-            href={meetRoomUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/40 font-medium transition-all"
-            title="Abrir esta sala oficial en Google Meet"
-          >
-            <Video className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Abrir en Google Meet</span>
-            <ExternalLink className="w-3 h-3" />
-          </a>
+          {/* Google Meet official link & Copy Link */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCopyLink}
+              className="text-xs px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition-all cursor-pointer"
+              title="Copiar enlace de Google Meet"
+            >
+              {copiedLink ? '✓ Enlace Copiado' : 'Copiar enlace'}
+            </button>
+            <a
+              href={meetRoomUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/40 font-medium transition-all"
+              title="Abrir esta sala oficial en Google Meet"
+            >
+              <Video className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Abrir en Google Meet</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
         </div>
 
         {/* Video / Call Center Stage */}

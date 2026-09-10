@@ -7,7 +7,7 @@ import {
   ArrowRight,
   Sparkles,
   Zap,
-  Briefcase,
+  Building2,
   AtSign,
   Check,
   AlertTriangle,
@@ -16,15 +16,17 @@ import {
   Smartphone,
   Eye,
   EyeOff,
-  Laptop,
   CheckCircle2,
-  ExternalLink,
+  Briefcase,
+  Users,
+  Clock,
 } from 'lucide-react';
-import { UserProfile } from '../types';
-import { loginWithEmail, registerWithEmail, signInWithGoogle } from '../lib/firebaseAuth';
-import { createNewUserProfile, detectCurrentDevice, generateFingerprint } from '../data/mockData';
-import { accountRegistry, RegisteredAccount } from '../lib/accountRegistry';
+import { UserProfile, AccountType, BusinessProfile } from '../types';
+import { loginWithEmail, registerWithEmail } from '../lib/firebaseAuth';
+import { detectCurrentDevice, generateFingerprint } from '../data/mockData';
+import { accountRegistry, RegisteredAccount, MAX_ACTIVE_ACCOUNTS } from '../lib/accountRegistry';
 import { createDefaultParentalSettings } from '../lib/parentalControl';
+import { NexusLogo } from './NexusLogo';
 
 interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
@@ -39,59 +41,44 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   onCloseModal,
   isAddAccountForPc = false,
 }) => {
-  const [isRegister, setIsRegister] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [isRegister, setIsRegister] = useState(false);
+  
+  // Flexible Login Identifier: can be @username, email, or phone number
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+
+  // Register Fields
+  const [accountType, setAccountType] = useState<AccountType>('personal');
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
-  const [securityPin, setSecurityPin] = useState('123456');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [securityPin, setSecurityPin] = useState('1234');
   const [isMinorAccount, setIsMinorAccount] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [showPin, setShowPin] = useState(false);
+
+  // Business specific fields
+  const [companyCategory, setCompanyCategory] = useState('Servicios y Comercio');
+  const [businessHours, setBusinessHours] = useState('Lun - Vie: 09:00 - 18:00');
+  const [businessAutoReply, setBusinessAutoReply] = useState('¡Hola! Gracias por contactarnos. Te responderemos a la brevedad.');
+
+  // State
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [showCustomGoogle, setShowCustomGoogle] = useState(false);
-  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
 
-  // Auto-detected Google account from previous session on this device
-  const [detectedGoogle] = useState<{
-    email: string;
-    name: string;
-    avatar: string;
-  } | null>(() => {
-    const savedEmail = localStorage.getItem('nexus_last_google_email');
-    const savedName = localStorage.getItem('nexus_last_google_name');
-    const savedAvatar = localStorage.getItem('nexus_last_google_avatar');
-    if (savedEmail) {
-      return {
-        email: savedEmail,
-        name: savedName || savedEmail.split('@')[0],
-        avatar: savedAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(savedName || savedEmail)}&background=2563eb&color=fff&bold=true`,
-      };
-    }
-    const googleAcc = accountRegistry.getAllAccounts().find((a) => a.isGoogleConnected);
-    if (googleAcc) {
-      return {
-        email: googleAcc.email,
-        name: googleAcc.displayName,
-        avatar: googleAcc.avatar,
-      };
-    }
-    return null;
-  });
-
-  // Duplicate Account Alert State
-  const [duplicateAlert, setDuplicateAlert] = useState<{
-    email: string;
-    existingAccount?: RegisteredAccount;
-  } | null>(null);
-
-  // 2FA / Owner Access Verification Step
+  // 2FA / Owner PIN verification step for login
   const [verificationStep, setVerificationStep] = useState<{
     required: boolean;
     targetAccount: RegisteredAccount;
     pinInput: string;
     error?: string;
   } | null>(null);
+
+  // Check multi-account limits
+  const activeDeviceAccounts = accountRegistry.getActiveDeviceAccounts();
+  const isLimitReached = isAddAccountForPc && activeDeviceAccounts.length >= MAX_ACTIVE_ACCOUNTS;
 
   const handleNameChange = (name: string) => {
     setDisplayName(name);
@@ -100,856 +87,654 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   };
 
-  const handleSwitchToLoginOwner = () => {
-    setDuplicateAlert(null);
-    setIsRegister(false);
-    setErrorMsg('');
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Submit Login
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password.trim()) {
-      setErrorMsg('Por favor completa todos los campos requeridos.');
+    if (!loginIdentifier.trim()) {
+      setErrorMsg('Por favor ingresa tu nombre de usuario, correo electrónico o teléfono.');
+      return;
+    }
+    if (!loginPassword.trim()) {
+      setErrorMsg('Por favor ingresa tu contraseña o PIN de acceso.');
       return;
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanUsername = username.trim().toLowerCase().replace(/^@/, '');
-
-    // -------------------------------------------------------------
-    // 1. REGISTRATION DUPLICATE PREVENTION CHECK
-    // -------------------------------------------------------------
-    if (isRegister) {
-      if (!displayName.trim()) {
-        setErrorMsg('Por favor ingresa tu nombre completo.');
-        return;
-      }
-
-      // Check if email already registered in system
-      if (accountRegistry.isEmailRegistered(cleanEmail)) {
-        const existing = accountRegistry.getAccountByEmail(cleanEmail);
-        setDuplicateAlert({
-          email: cleanEmail,
-          existingAccount: existing,
-        });
-        return;
-      }
-
-      // Check if username already taken
-      if (cleanUsername && accountRegistry.isUsernameRegistered(cleanUsername)) {
-        setErrorMsg(`El nombre de usuario @${cleanUsername} ya está en uso por otra persona. Elige uno diferente.`);
-        return;
-      }
-
-      // Validate PIN
-      if (securityPin.length < 4) {
-        setErrorMsg('El PIN de seguridad debe tener al menos 4 dígitos para proteger tu cuenta.');
-        return;
-      }
-    }
-
-    // -------------------------------------------------------------
-    // 2. LOGIN OWNER VERIFICATION (2FA PIN CHECK)
-    // -------------------------------------------------------------
-    if (!isRegister) {
-      const existingAccount = accountRegistry.getAccountByEmail(cleanEmail);
-      if (existingAccount && (existingAccount.twoFactorEnabled || existingAccount.securityPin)) {
-        // Intercept login to require owner 2FA PIN authorization
-        setVerificationStep({
-          required: true,
-          targetAccount: existingAccount,
-          pinInput: '',
-        });
-        return;
-      }
-    }
-
-    executeAuth(cleanEmail, cleanUsername);
-  };
-
-  const executeAuth = async (cleanEmail: string, cleanUsername: string) => {
     setIsLoading(true);
     setErrorMsg('');
-    setDuplicateAlert(null);
 
     try {
-      if (isRegister) {
-        await registerWithEmail(cleanEmail, password, displayName);
+      // Find account in registry by email, username, or phone
+      const target = accountRegistry.findAccount(loginIdentifier);
+
+      if (target) {
+        // If account has 2FA PIN or security PIN enabled
+        if (target.securityPin && target.twoFactorEnabled) {
+          setIsLoading(false);
+          setVerificationStep({
+            required: true,
+            targetAccount: target,
+            pinInput: '',
+          });
+          return;
+        }
+
+        // Direct login success
+        finalizeUserLogin(target);
       } else {
-        await loginWithEmail(cleanEmail, password);
-      }
+        // Fallback login: attempt with identifier as email
+        const pseudoEmail = loginIdentifier.includes('@')
+          ? loginIdentifier.toLowerCase().trim()
+          : `${loginIdentifier.toLowerCase().replace(/[^a-z0-9_]/g, '')}@nexus.chat`;
 
-      completeProfileSuccess(cleanEmail, cleanUsername);
+        try {
+          await loginWithEmail(pseudoEmail, loginPassword);
+        } catch {
+          // offline simulation
+        }
+
+        // Create or load profile
+        const newProfile: UserProfile = {
+          id: `usr_${loginIdentifier.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+          displayName: loginIdentifier.split('@')[0],
+          username: loginIdentifier.toLowerCase().replace(/[^a-z0-9_]/g, ''),
+          email: pseudoEmail,
+          avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(loginIdentifier)}&background=2563eb&color=fff&bold=true`,
+          status: 'online',
+          statusMessage: 'Disponible | Conexión Segura E2EE',
+          bio: 'Usuario de Nexus Comunicación',
+          phone: loginIdentifier.match(/^[0-9+ ]+$/) ? loginIdentifier : '',
+          e2eeFingerprint: generateFingerprint(),
+          joinedDate: new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }),
+          devices: [detectCurrentDevice()],
+          accountType: 'personal',
+          securityPin: '1234',
+          twoFactorEnabled: true,
+          requireDeviceApproval: true,
+          loginAlertsEnabled: true,
+          preventDuplicateAccounts: true,
+        };
+
+        accountRegistry.registerAccount(newProfile, '1234');
+        finalizeUserLogin(newProfile);
+      }
     } catch (err: any) {
-      console.warn('Auth fallback / local registration:', err);
-      // Even in offline sandbox, register in account registry
-      completeProfileSuccess(cleanEmail, cleanUsername);
+      setErrorMsg(err?.message || 'Error al iniciar sesión. Verifica tus credenciales.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const completeProfileSuccess = (cleanEmail: string, cleanUsername: string) => {
-    // Unify: Check if an account already exists with this email (via Google or previous registration)
-    const existing = accountRegistry.getAccountByEmail(cleanEmail);
-    const accountId = existing ? existing.id : (`usr_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`);
-
-    const finalName = displayName.trim() || existing?.displayName || cleanEmail.split('@')[0];
-    const finalUsername =
-      cleanUsername.trim() || existing?.username || cleanEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
-
-    const profile: UserProfile = {
-      id: accountId,
-      displayName: finalName,
-      username: finalUsername,
-      email: cleanEmail,
-      avatar: existing?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(finalName)}&background=2563eb&color=fff&bold=true`,
-      status: existing?.status || 'online',
-      statusMessage: existing?.bio || 'Disponible | E2EE activo',
-      bio: existing?.bio || '',
-      phone: '',
-      e2eeFingerprint: generateFingerprint(),
-      joinedDate: existing?.createdAt || new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }),
-      isGoogleConnected: existing?.isGoogleConnected ?? false,
-      securityPin: securityPin || existing?.securityPin || '123456',
-      twoFactorEnabled: existing?.twoFactorEnabled ?? true,
-      requireDeviceApproval: existing?.requireDeviceApproval ?? true,
-      loginAlertsEnabled: existing?.loginAlertsEnabled ?? true,
-      preventDuplicateAccounts: true,
-      devices: existing?.devices?.length ? existing.devices : [detectCurrentDevice()],
-      isMinor: isMinorAccount || existing?.isMinor || false,
-      parentalControl: isMinorAccount ? createDefaultParentalSettings(true) : existing?.parentalControl,
-      linkedChildren: existing?.linkedChildren,
-    };
-
-    // Register into system-wide account registry (will update & unify existing)
-    accountRegistry.registerAccount(profile, profile.securityPin, {
-      twoFactorEnabled: profile.twoFactorEnabled,
-      requireDeviceApproval: profile.requireDeviceApproval,
-      loginAlertsEnabled: profile.loginAlertsEnabled,
-    });
-
-    onAuthSuccess(profile);
-    if (onCloseModal) onCloseModal();
-  };
-
-  // Unified Google Workspace completion handler: shares the exact same unified account
-  const completeGoogleLogin = (gName: string, gEmail: string, gAvatar?: string) => {
-    const cleanEmail = gEmail.trim().toLowerCase();
-    const existing = accountRegistry.getAccountByEmail(cleanEmail);
-
-    // Check if existing account with Google email has 2FA PIN
-    if (existing && existing.twoFactorEnabled && existing.securityPin) {
-      setIsLoading(false);
-      setVerificationStep({
-        required: true,
-        targetAccount: existing,
-        pinInput: '',
-      });
-      return;
-    }
-
-    // Save detected Google credentials for future automatic detection
-    try {
-      localStorage.setItem('nexus_last_google_email', cleanEmail);
-      localStorage.setItem('nexus_last_google_name', gName);
-      if (gAvatar) localStorage.setItem('nexus_last_google_avatar', gAvatar);
-    } catch {
-      // ignore local storage quota
-    }
-
-    // Unify under the exact same account ID as classic login
-    const accountId = existing ? existing.id : (`usr_${cleanEmail.replace(/[^a-z0-9]/g, '_')}`);
-    const finalName = gName || existing?.displayName || cleanEmail.split('@')[0];
-    const finalUsername = existing?.username || cleanEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
-
-    const profile: UserProfile = {
-      id: accountId,
-      displayName: finalName,
-      username: finalUsername,
-      email: cleanEmail,
-      avatar: gAvatar || existing?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(finalName)}&background=2563eb&color=fff&bold=true`,
-      status: existing?.status || 'online',
-      statusMessage: existing?.bio || 'Disponible | E2EE activo',
-      bio: existing?.bio || '',
-      phone: '',
-      e2eeFingerprint: generateFingerprint(),
-      joinedDate: existing?.createdAt || new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }),
-      isGoogleConnected: true, // Google OAuth connected
-      securityPin: existing?.securityPin || '123456',
-      twoFactorEnabled: existing?.twoFactorEnabled ?? true,
-      requireDeviceApproval: existing?.requireDeviceApproval ?? true,
-      loginAlertsEnabled: existing?.loginAlertsEnabled ?? true,
-      preventDuplicateAccounts: true,
-      devices: existing?.devices?.length ? existing.devices : [detectCurrentDevice()],
-      isMinor: existing?.isMinor || false,
-      parentalControl: existing?.parentalControl,
-      linkedChildren: existing?.linkedChildren,
-    };
-
-    accountRegistry.registerAccount(profile, profile.securityPin, {
-      twoFactorEnabled: profile.twoFactorEnabled,
-      requireDeviceApproval: profile.requireDeviceApproval,
-      loginAlertsEnabled: profile.loginAlertsEnabled,
-    });
-
-    onAuthSuccess(profile);
-    if (onCloseModal) onCloseModal();
-  };
-
-  // Google Login Flow - Opens official Google OAuth popup with account chooser across all domains
-  const handleGoogleLogin = async (customEmail?: string) => {
-    setIsLoading(true);
-    setErrorMsg('');
-    setDuplicateAlert(null);
-
-    // If a custom email was explicitly entered, use it directly
-    if (customEmail && customEmail.trim()) {
-      const cleanCustom = customEmail.trim().toLowerCase();
-      const derivedName = cleanCustom.split('@')[0];
-      completeGoogleLogin(derivedName, cleanCustom);
-      setIsLoading(false);
-      return;
-    }
-
-    // Always attempt the official Google OAuth popup first with forced account selection dialog
-    try {
-      const res = await signInWithGoogle();
-      if (res?.user) {
-        const googleUser = res.user;
-        const gName = googleUser.displayName || googleUser.email?.split('@')[0] || 'Usuario';
-        const gEmail = (googleUser.email || '').toLowerCase();
-        const gAvatar = googleUser.photoURL || undefined;
-        completeGoogleLogin(gName, gEmail, gAvatar);
-        return;
-      }
-    } catch (err: any) {
-      console.warn('Firebase popup result:', err);
-      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
-        // User closed the popup voluntarily
-        setIsLoading(false);
-        return;
-      }
-
-      // If popup was blocked or domain requires manual entry
-      setIsLoading(false);
-      setShowCustomGoogle(true);
-      setErrorMsg('La ventana de Google requirió verificación o el dominio necesita autorización. Por favor selecciona o ingresa el correo de la cuenta de Google a continuación.');
-      return;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Confirm Owner 2FA PIN
-  const handleConfirmPinVerification = (e: React.FormEvent) => {
+  // Submit Registration
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!verificationStep) return;
+    setErrorMsg('');
 
-    const { targetAccount, pinInput } = verificationStep;
-    const isCorrect = accountRegistry.verifyOwnerPin(targetAccount.email, pinInput);
-
-    if (!isCorrect) {
-      setVerificationStep({
-        ...verificationStep,
-        error: 'PIN de seguridad incorrecto. Acceso bloqueado para proteger la cuenta del propietario.',
-      });
+    if (!displayName.trim()) {
+      setErrorMsg(accountType === 'business' ? 'Ingresa el nombre comercial de tu empresa.' : 'Ingresa tu nombre completo.');
       return;
     }
 
-    // Owner verified!
-    const currentDev = detectCurrentDevice();
-    const updatedDevices = [...(targetAccount.devices || []), currentDev];
-    accountRegistry.updateDevices(targetAccount.id, updatedDevices);
+    if (!username.trim()) {
+      setErrorMsg('Elige un nombre de usuario (@usuario).');
+      return;
+    }
 
+    if (!email.trim() && !phone.trim()) {
+      setErrorMsg('Debes ingresar al menos un correo electrónico o un número de teléfono.');
+      return;
+    }
+
+    if (!password.trim() || password.length < 4) {
+      setErrorMsg('La contraseña debe tener al menos 4 caracteres.');
+      return;
+    }
+
+    const cleanUsername = username.trim().toLowerCase().replace(/^@/, '');
+    const cleanEmail = email.trim().toLowerCase() || `${cleanUsername}@nexus.chat`;
+    const cleanPhone = phone.trim();
+
+    // Check duplicate username
+    if (accountRegistry.isUsernameRegistered(cleanUsername)) {
+      setErrorMsg(`El nombre de usuario @${cleanUsername} ya está en uso. Por favor elige otro.`);
+      return;
+    }
+
+    // Check duplicate email
+    if (email.trim() && accountRegistry.isEmailRegistered(cleanEmail)) {
+      setErrorMsg(`El correo ${cleanEmail} ya está registrado. Inicia sesión con tus credenciales.`);
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      try {
+        await registerWithEmail(cleanEmail, password, displayName);
+      } catch {
+        // offline simulation
+      }
+
+      const businessData: BusinessProfile | undefined = accountType === 'business' ? {
+        companyName: displayName.trim(),
+        category: companyCategory,
+        verified: true,
+        businessHours: businessHours,
+        autoReply: businessAutoReply,
+      } : undefined;
+
+      const profile: UserProfile = {
+        id: `usr_${cleanUsername}_${Date.now().toString(36)}`,
+        displayName: displayName.trim(),
+        username: cleanUsername,
+        email: cleanEmail,
+        phone: cleanPhone,
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=${accountType === 'business' ? 'f59e0b' : '2563eb'}&color=fff&bold=true`,
+        status: 'online',
+        statusMessage: accountType === 'business' ? `Cuenta de Empresa • ${companyCategory}` : 'Disponible | Nexus E2EE',
+        bio: accountType === 'business' ? `Empresa Verificada en Nexus. ${companyCategory}. Horario: ${businessHours}` : 'Usuario en Nexus Comunicación Universal',
+        e2eeFingerprint: generateFingerprint(),
+        joinedDate: new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }),
+        devices: [detectCurrentDevice()],
+        accountType: accountType,
+        businessProfile: businessData,
+        securityPin: securityPin || '1234',
+        twoFactorEnabled: true,
+        requireDeviceApproval: true,
+        loginAlertsEnabled: true,
+        preventDuplicateAccounts: true,
+        isMinor: isMinorAccount,
+        parentalControl: isMinorAccount ? createDefaultParentalSettings(true) : undefined,
+      };
+
+      accountRegistry.registerAccount(profile, securityPin || '1234', {
+        twoFactorEnabled: true,
+        requireDeviceApproval: true,
+        loginAlertsEnabled: true,
+      });
+
+      finalizeUserLogin(profile);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al crear la cuenta. Inténtalo de nuevo.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Finalize login and register in active device accounts
+  const finalizeUserLogin = (userLike: RegisteredAccount | UserProfile) => {
     const userProfile: UserProfile = {
-      id: targetAccount.id,
-      displayName: targetAccount.displayName,
-      username: targetAccount.username,
-      email: targetAccount.email,
-      avatar: targetAccount.avatar,
-      status: targetAccount.status,
-      bio: targetAccount.bio || '',
-      e2eeFingerprint: targetAccount.devices?.[0]?.e2eeKeySynced ? '1234 5678 9012 3456' : '9999 8888 7777 6666',
-      joinedDate: targetAccount.createdAt,
-      devices: updatedDevices,
-      isGoogleConnected: targetAccount.isGoogleConnected,
-      securityPin: targetAccount.securityPin,
-      twoFactorEnabled: targetAccount.twoFactorEnabled,
-      requireDeviceApproval: targetAccount.requireDeviceApproval,
-      loginAlertsEnabled: targetAccount.loginAlertsEnabled,
-      preventDuplicateAccounts: targetAccount.preventDuplicateAccounts,
+      id: userLike.id,
+      displayName: userLike.displayName,
+      username: userLike.username,
+      email: userLike.email,
+      phone: userLike.phone,
+      avatar: userLike.avatar,
+      status: userLike.status,
+      statusMessage: userLike.bio || (userLike.accountType === 'business' ? 'Empresa Verificada' : 'Disponible'),
+      bio: userLike.bio || '',
+      e2eeFingerprint: (userLike as any).e2eeFingerprint || generateFingerprint(),
+      joinedDate: (userLike as any).createdAt || (userLike as any).joinedDate || 'Hoy',
+      devices: userLike.devices?.length ? userLike.devices : [detectCurrentDevice()],
+      accountType: userLike.accountType || 'personal',
+      businessProfile: userLike.businessProfile,
+      securityPin: userLike.securityPin,
+      twoFactorEnabled: userLike.twoFactorEnabled,
+      requireDeviceApproval: userLike.requireDeviceApproval,
+      loginAlertsEnabled: userLike.loginAlertsEnabled,
+      preventDuplicateAccounts: true,
+      isMinor: userLike.isMinor,
+      parentalControl: userLike.parentalControl,
+      linkedChildren: userLike.linkedChildren,
     };
+
+    // Add to device active accounts (enforcing max 2 limit)
+    accountRegistry.addActiveDeviceAccount(userProfile);
 
     onAuthSuccess(userProfile);
     if (onCloseModal) onCloseModal();
   };
 
-  const containerContent = (
-    <div className="w-full max-w-md rounded-3xl bg-slate-900/95 border border-slate-800 p-6 sm:p-8 shadow-2xl backdrop-blur-md space-y-5 text-slate-100">
-      {/* Brand Header */}
-      <div className="flex flex-col items-center text-center space-y-2">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
-          <span className="font-extrabold text-2xl tracking-wider">N</span>
-        </div>
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-white">
-            {verificationStep
-              ? 'Verificación de Acceso del Propietario'
-              : duplicateAlert
-              ? 'Cuenta Existente Detectada'
+  const handleVerifyPin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verificationStep) return;
+
+    if (verificationStep.pinInput.trim() === verificationStep.targetAccount.securityPin) {
+      finalizeUserLogin(verificationStep.targetAccount);
+    } else {
+      setVerificationStep({
+        ...verificationStep,
+        error: 'PIN incorrecto. Ingresa el código de 4 a 6 dígitos configurado en tu cuenta.',
+      });
+    }
+  };
+
+  return (
+    <div className={`w-full ${isModal ? '' : 'min-h-screen'} bg-slate-950 flex flex-col items-center justify-center p-4 md:p-6 text-white`}>
+      <div className="w-full max-w-md space-y-6">
+        {/* Brand Header */}
+        <div className="flex flex-col items-center text-center space-y-2">
+          <NexusLogo size="lg" showShield={true} />
+          <h2 className="text-xl md:text-2xl font-black text-white tracking-tight mt-1">
+            {isAddAccountForPc
+              ? 'Agregar Segunda Cuenta'
               : isRegister
-              ? 'Crear tu Cuenta en Nexus'
-              : 'Iniciar Sesión'}
+              ? 'Crear Cuenta en Nexus'
+              : 'Bienvenido de nuevo'}
           </h2>
-          <p className="text-xs text-slate-400 mt-1 max-w-xs">
-            {verificationStep
-              ? 'Introduce el código PIN de 6 dígitos para autorizar el ingreso a este dispositivo.'
-              : duplicateAlert
-              ? 'Protección contra duplicados y suplantación de identidad activa.'
-              : isRegister
-              ? 'Crea tu cuenta segura con cifrado E2EE y protección de duplicados.'
-              : 'Accede a tus conversaciones cifradas y espacio de trabajo.'}
+          <p className="text-xs md:text-sm text-slate-400 max-w-xs">
+            {isRegister
+              ? 'Mensajería universal, fotos, vídeos, llamadas y notas privadas con cifrado E2EE.'
+              : 'Accede con tu usuario, correo electrónico o teléfono móvil.'}
           </p>
         </div>
-      </div>
 
-      {/* --------------------------------------------------------------- */}
-      {/* VIEW 1: 2FA OWNER PIN VERIFICATION STEP                         */}
-      {/* --------------------------------------------------------------- */}
-      {verificationStep ? (
-        <form onSubmit={handleConfirmPinVerification} className="space-y-4 pt-2">
-          <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-500/30 space-y-2 text-center">
-            <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center mx-auto">
-              <ShieldAlert className="w-5 h-5" />
+        {/* Multi-Account Limit Warning */}
+        {isLimitReached ? (
+          <div className="p-5 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-3">
+            <div className="flex items-center gap-2 font-bold text-sm text-amber-400">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              Límite de multicuentas alcanzado (2/2)
             </div>
-            <h4 className="font-bold text-xs text-white">
-              Autorización Requerida para:
-            </h4>
-            <div className="p-2 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center gap-2">
-              <img
-                src={verificationStep.targetAccount.avatar}
-                alt="Avatar"
-                className="w-6 h-6 rounded-full"
-              />
-              <span className="font-semibold text-xs text-blue-300 truncate">
-                {verificationStep.targetAccount.email}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              Esta cuenta cuenta con protección de acceso de 2 pasos. Solo el propietario autorizado puede ingresar.
+            <p className="leading-relaxed">
+              Por seguridad y rendimiento, Nexus permite un máximo de <strong>2 cuentas simultáneas</strong> activas en este dispositivo (por ejemplo, 1 Personal y 1 de Empresa).
             </p>
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1">
-              PIN de Seguridad (6 dígitos)
-            </label>
-            <div className="relative">
-              <input
-                id="input-verify-pin"
-                type={showPin ? 'text' : 'password'}
-                maxLength={6}
-                required
-                autoFocus
-                placeholder="••••••"
-                value={verificationStep.pinInput}
-                onChange={(e) =>
-                  setVerificationStep({
-                    ...verificationStep,
-                    pinInput: e.target.value.replace(/\D/g, ''),
-                    error: undefined,
-                  })
-                }
-                className="w-full text-center tracking-[0.5em] text-lg font-mono rounded-xl p-3 bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500"
-              />
+            <div className="p-2.5 rounded-2xl bg-black/40 border border-amber-500/20 text-slate-300">
+              Cuentas activas en este equipo:
+              <ul className="list-disc list-inside mt-1 font-mono text-[11px] text-amber-300">
+                {activeDeviceAccounts.map((a) => (
+                  <li key={a.id} className="truncate">
+                    {a.displayName} (@{a.username})
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {onCloseModal && (
               <button
-                type="button"
-                onClick={() => setShowPin(!showPin)}
-                className="absolute right-3 top-3.5 text-slate-400 hover:text-white"
+                onClick={onCloseModal}
+                className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold transition-colors text-xs"
               >
-                {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                Cerrar y gestionar cuentas en Ajustes
               </button>
-            </div>
-            <p className="text-[10px] text-slate-400 mt-1 text-center">
-              (PIN por defecto de prueba: 123456)
-            </p>
+            )}
           </div>
-
-          {verificationStep.error && (
-            <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs font-medium text-center">
-              {verificationStep.error}
-            </div>
-          )}
-
-          <div className="space-y-2 pt-1">
-            <button
-              type="submit"
-              className="w-full py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 cursor-pointer transition-all flex items-center justify-center gap-2"
-            >
-              <KeyRound className="w-4 h-4" />
-              <span>Verificar y Autorizar Entrada</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setVerificationStep(null)}
-              className="w-full py-2 text-xs text-slate-400 hover:text-white cursor-pointer"
-            >
-              Cancelar e intentar con otra cuenta
-            </button>
-          </div>
-        </form>
-      ) : duplicateAlert ? (
-        /* --------------------------------------------------------------- */
-        /* VIEW 2: DUPLICATE ACCOUNT DETECTED (PREVENTION MODAL)           */
-        /* --------------------------------------------------------------- */
-        <div className="space-y-4 pt-1">
-          <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/40 space-y-3">
-            <div className="flex items-center gap-2 text-amber-300 font-bold text-xs">
-              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
-              <span>Prevención de Cuentas Duplicadas Activa</span>
-            </div>
-
-            <p className="text-xs text-amber-200/90 leading-relaxed">
-              El correo <strong className="text-white font-mono">{duplicateAlert.email}</strong> ya pertenece a una cuenta registrada en Nexus.
-            </p>
-
-            <div className="p-3 rounded-xl bg-slate-900 border border-amber-500/20 text-[11px] text-slate-300 space-y-1">
-              <div className="font-semibold text-white flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>Protección de Identidad y Criptografía</span>
+        ) : (
+          /* Main Auth Card */
+          <div className="rounded-3xl bg-slate-900/90 border border-slate-800/80 p-6 md:p-7 shadow-2xl backdrop-blur-xl space-y-5">
+            {/* Tab selector: Iniciar Sesión / Crear Cuenta */}
+            {!isAddAccountForPc && (
+              <div className="grid grid-cols-2 p-1 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRegister(false);
+                    setErrorMsg('');
+                    setVerificationStep(null);
+                  }}
+                  className={`py-2 rounded-xl transition-all cursor-pointer ${
+                    !isRegister
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Iniciar Sesión
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRegister(true);
+                    setErrorMsg('');
+                    setVerificationStep(null);
+                  }}
+                  className={`py-2 rounded-xl transition-all cursor-pointer ${
+                    isRegister
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Crear Cuenta
+                </button>
               </div>
-              <p className="text-slate-400">
-                Para prevenir la suplantación de identidad y el robo de sesiones, <strong>no se puede registrar una cuenta clonada con estos mismos datos sin permiso del dueño</strong>.
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-2 pt-2">
-            <button
-              type="button"
-              id="btn-confirm-owner"
-              onClick={handleSwitchToLoginOwner}
-              className="w-full py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all cursor-pointer flex items-center justify-center gap-2"
-            >
-              <KeyRound className="w-4 h-4" />
-              <span>Soy el dueño legítimo: Iniciar Sesión con PIN</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setDuplicateAlert(null);
-                setEmail('');
-              }}
-              className="w-full py-2 text-xs text-slate-400 hover:text-white cursor-pointer"
-            >
-              Usar otro correo electrónico
-            </button>
-          </div>
-        </div>
-      ) : (
-        /* --------------------------------------------------------------- */
-        /* VIEW 3: MAIN REGISTRATION / LOGIN FORM                          */
-        /* --------------------------------------------------------------- */
-        <>
-          {/* PC Multi-account banner when adding another account */}
-          {isAddAccountForPc && (
-            <div className="p-3 rounded-2xl bg-blue-950/50 border border-blue-500/40 text-xs text-blue-200 flex items-center gap-2.5">
-              <Laptop className="w-4 h-4 text-blue-400 shrink-0" />
-              <div className="leading-tight">
-                <span className="font-bold text-white">Modo Multicuenta PC:</span>
-                <span className="text-blue-300 ml-1">Tu sesión actual permanecerá activa en este equipo.</span>
-              </div>
-            </div>
-          )}
-
-          {/* 1. SECCIÓN PRINCIPAL: GOOGLE OAUTH & WORKSPACE CON SELECTOR DE CUENTAS */}
-          <div className="p-4 rounded-2xl bg-gradient-to-b from-blue-950/40 to-slate-900 border border-blue-500/30 space-y-3.5 shadow-lg">
-            {detectedGoogle ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                      <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                    </div>
-                    <span className="text-xs font-bold text-blue-300">
-                      Cuenta de Google en este equipo
-                    </span>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold">
-                    Sesión previa
-                  </span>
-                </div>
-
-                {/* Tarjeta del usuario Google detectado */}
-                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/70 border border-slate-700/70">
-                  <img
-                    src={detectedGoogle.avatar}
-                    alt={detectedGoogle.name}
-                    className="w-10 h-10 rounded-full object-cover border-2 border-blue-500/40 shrink-0"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-bold text-white truncate">
-                      {detectedGoogle.name}
-                    </div>
-                    <div className="text-[11px] text-slate-400 truncate font-mono">
-                      {detectedGoogle.email}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Botón principal: Continuar con la cuenta detectada */}
-                <button
-                  id="btn-google-detected-login"
-                  type="button"
-                  onClick={() => handleGoogleLogin(detectedGoogle.email)}
-                  disabled={isLoading}
-                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-600/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
-                >
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                    <path fill="#ffffff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                    <path fill="#ffffff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  </svg>
-                  <span>Continuar como {detectedGoogle.name}</span>
-                </button>
-
-                {/* Botón para abrir el selector oficial de cualquier otra cuenta de Google */}
-                <button
-                  type="button"
-                  id="btn-google-official-popup"
-                  onClick={() => handleGoogleLogin()}
-                  disabled={isLoading}
-                  className="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700/90 text-white font-semibold text-xs border border-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Elegir otra cuenta de Google (Selector oficial)</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                      <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                    </div>
-                    <span className="text-xs font-bold text-blue-300">
-                      Google Workspace & OAuth
-                    </span>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                    Cualquier cuenta
-                  </span>
-                </div>
-
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Accede con cualquier cuenta de Google (@gmail o Workspace). Se abrirá la ventana oficial para que elijas libremente con cuál cuenta ingresar.
-                </p>
-
-                {/* Botón principal: Abrir selector oficial de Google */}
-                <button
-                  id="btn-google-login-universal"
-                  type="button"
-                  onClick={() => handleGoogleLogin()}
-                  disabled={isLoading}
-                  className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-600/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
-                >
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                    <path fill="#ffffff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                    <path fill="#ffffff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  </svg>
-                  <span>Iniciar sesión con Google (Elegir cualquier cuenta)</span>
-                </button>
-              </>
             )}
 
-            {/* Alternativa: Ingresar correo de Google manualmente */}
-            <div className="space-y-2 pt-1 border-t border-slate-800/80">
-              <button
-                type="button"
-                id="btn-toggle-custom-google"
-                onClick={() => setShowCustomGoogle((prev) => !prev)}
-                className="w-full py-1.5 text-[11px] text-slate-400 hover:text-blue-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <span>{showCustomGoogle ? 'Ocultar entrada manual' : '¿Prefieres ingresar tu correo de Google directamente?'}</span>
-              </button>
+            {/* Error Message */}
+            {errorMsg && (
+              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
 
-              {showCustomGoogle && (
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5 animate-in fade-in duration-150">
-                  <label className="text-[11px] font-semibold text-slate-300 block">
-                    Ingresa cualquier correo de Google (@gmail o Workspace):
+            {/* 2FA PIN Verification Interstitial */}
+            {verificationStep ? (
+              <form onSubmit={handleVerifyPin} className="space-y-4">
+                <div className="text-center space-y-1">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-600/20 text-blue-400 mx-auto flex items-center justify-center">
+                    <KeyRound className="w-6 h-6" />
+                  </div>
+                  <h4 className="font-bold text-sm text-white">Verificación de Seguridad</h4>
+                  <p className="text-xs text-slate-400">
+                    Ingresa el PIN de seguridad de tu cuenta <strong>@{verificationStep.targetAccount.username}</strong>
+                  </p>
+                </div>
+
+                {verificationStep.error && (
+                  <p className="text-xs text-rose-400 text-center">{verificationStep.error}</p>
+                )}
+
+                <div>
+                  <input
+                    type="password"
+                    maxLength={6}
+                    value={verificationStep.pinInput}
+                    onChange={(e) =>
+                      setVerificationStep({
+                        ...verificationStep,
+                        pinInput: e.target.value.replace(/[^0-9]/g, ''),
+                      })
+                    }
+                    placeholder="••••"
+                    autoFocus
+                    className="w-full text-center text-2xl tracking-[0.5em] py-3 rounded-2xl bg-slate-950 border border-slate-800 focus:border-blue-500 focus:outline-none text-white font-mono"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setVerificationStep(null)}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300"
+                  >
+                    Volver
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white shadow-md shadow-blue-500/20"
+                  >
+                    Autorizar Acceso
+                  </button>
+                </div>
+              </form>
+            ) : !isRegister ? (
+              /* LOGIN FORM */
+              <form onSubmit={handleLoginSubmit} className="space-y-4">
+                {/* Flexible Identifier */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
+                    <span>Usuario, Correo o Teléfono</span>
+                    <span className="text-[10px] text-blue-400 font-mono">@usuario / email / +tel</span>
                   </label>
-                  <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                      <AtSign className="w-4 h-4" />
+                    </div>
                     <input
-                      type="email"
-                      placeholder="tu_cuenta@gmail.com"
-                      value={customGoogleEmail}
-                      onChange={(e) => setCustomGoogleEmail(e.target.value)}
-                      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-blue-500"
+                      type="text"
+                      value={loginIdentifier}
+                      onChange={(e) => setLoginIdentifier(e.target.value)}
+                      placeholder="ej. @carlos, carlos@mail.com o +525512345678"
+                      className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Password / PIN */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300">
+                    Contraseña o PIN de Seguridad
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full pl-10 pr-10 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                      required
                     />
                     <button
                       type="button"
-                      onClick={() => {
-                        if (customGoogleEmail.trim()) {
-                          handleGoogleLogin(customGoogleEmail.trim());
-                        }
-                      }}
-                      disabled={!customGoogleEmail.trim() || isLoading}
-                      className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors disabled:opacity-50 cursor-pointer shrink-0"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300"
                     >
-                      Acceder
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
 
-          {/* Divisor opcional */}
-          <div className="flex items-center gap-3 pt-1">
-            <div className="flex-1 h-px bg-slate-800" />
-            <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider text-center">
-              o registro / inicio clásico con credenciales
-            </span>
-            <div className="flex-1 h-px bg-slate-800" />
-          </div>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-cyan-600 to-emerald-600 hover:opacity-95 text-white font-bold text-xs shadow-lg shadow-blue-500/20 transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {isLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>Entrar a Nexus</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+            ) : (
+              /* REGISTRATION FORM */
+              <form onSubmit={handleRegisterSubmit} className="space-y-4">
+                {/* Account Type Toggle */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300">Tipo de Cuenta</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAccountType('personal')}
+                      className={`p-2.5 rounded-2xl border flex items-center gap-2.5 transition-all cursor-pointer ${
+                        accountType === 'personal'
+                          ? 'bg-blue-600/20 border-blue-500 text-white'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <User className={`w-4 h-4 ${accountType === 'personal' ? 'text-blue-400' : ''}`} />
+                      <div className="text-left">
+                        <p className="text-xs font-semibold leading-tight">Personal</p>
+                        <p className="text-[10px] text-slate-400">Amigos y familia</p>
+                      </div>
+                    </button>
 
-          {/* Tabs Switcher: Registro vs Login Clásico */}
-          <div className="grid grid-cols-2 p-1 bg-slate-800/80 rounded-2xl border border-slate-700/50">
-            <button
-              type="button"
-              id="btn-tab-register"
-              onClick={() => {
-                setIsRegister(true);
-                setErrorMsg('');
-                setDuplicateAlert(null);
-              }}
-              className={`py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-                isRegister
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Crear Cuenta
-            </button>
-            <button
-              type="button"
-              id="btn-tab-login"
-              onClick={() => {
-                setIsRegister(false);
-                setErrorMsg('');
-                setDuplicateAlert(null);
-              }}
-              className={`py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-                !isRegister
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Iniciar Sesión
-            </button>
-          </div>
+                    <button
+                      type="button"
+                      onClick={() => setAccountType('business')}
+                      className={`p-2.5 rounded-2xl border flex items-center gap-2.5 transition-all cursor-pointer ${
+                        accountType === 'business'
+                          ? 'bg-amber-500/20 border-amber-500 text-white'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <Building2 className={`w-4 h-4 ${accountType === 'business' ? 'text-amber-400' : ''}`} />
+                      <div className="text-left">
+                        <p className="text-xs font-semibold leading-tight">Empresa / Negocio</p>
+                        <p className="text-[10px] text-slate-400">Perfil comercial</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
 
-          {/* Main Email / Password Form */}
-          <form onSubmit={handleSubmit} className="space-y-3.5">
-            {isRegister && (
-              <>
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    Nombre Completo
+                {/* Display Name or Company Name */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300">
+                    {accountType === 'business' ? 'Nombre Comercial de la Empresa' : 'Tu Nombre Completo'}
                   </label>
-                  <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/80 focus-within:border-blue-500 transition-colors">
-                    <User className="w-4 h-4 text-slate-400 shrink-0" />
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                      {accountType === 'business' ? <Building2 className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                    </div>
                     <input
-                      id="auth-input-fullname"
                       type="text"
-                      required
-                      placeholder="Tu Nombre"
                       value={displayName}
                       onChange={(e) => handleNameChange(e.target.value)}
-                      className="w-full bg-transparent text-xs text-white outline-none"
+                      placeholder={accountType === 'business' ? 'ej. Studio Creativo Nexus' : 'ej. Alex Rivera'}
+                      className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                      required
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    Nombre de Usuario (@)
-                  </label>
-                  <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/80 focus-within:border-blue-500 transition-colors">
-                    <AtSign className="w-4 h-4 text-slate-400 shrink-0" />
+                {/* Username */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300">Nombre de Usuario Único</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                      <AtSign className="w-4 h-4" />
+                    </div>
                     <input
-                      id="auth-input-username"
                       type="text"
-                      placeholder="nombre_usuario"
                       value={username}
-                      onChange={(e) =>
-                        setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))
-                      }
-                      className="w-full bg-transparent text-xs text-white outline-none"
+                      onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                      placeholder="ej. alex_rivera"
+                      className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                      required
                     />
                   </div>
                 </div>
-              </>
-            )}
 
-            <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1">
-                Correo Electrónico
-              </label>
-              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/80 focus-within:border-blue-500 transition-colors">
-                <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-                <input
-                  id="auth-input-email"
-                  type="email"
-                  required
-                  placeholder="tu.correo@ejemplo.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-transparent text-xs text-white outline-none"
-                />
-              </div>
-            </div>
+                {/* Email and Phone Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Email */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-300">Correo Electrónico</label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                        <Mail className="w-3.5 h-3.5" />
+                      </div>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="contacto@ejemplo.com"
+                        className="w-full pl-9 pr-3 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
 
-            <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1">
-                Contraseña
-              </label>
-              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/80 focus-within:border-blue-500 transition-colors">
-                <Lock className="w-4 h-4 text-slate-400 shrink-0" />
-                <input
-                  id="auth-input-password"
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-transparent text-xs text-white outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Security PIN Field for New Registrations */}
-            {isRegister && (
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-300">
-                    PIN de Seguridad (6 dígitos para autorizar accesos)
-                  </label>
-                  <span className="text-[10px] text-emerald-400 font-semibold">2FA Activo</span>
+                  {/* Phone */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-300">Teléfono Móvil</label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                        <Smartphone className="w-3.5 h-3.5" />
+                      </div>
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="+52 55 1234 5678"
+                        className="w-full pl-9 pr-3 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/80 focus-within:border-blue-500 transition-colors">
-                  <KeyRound className="w-4 h-4 text-amber-400 shrink-0" />
-                  <input
-                    id="auth-input-pin"
-                    type="text"
-                    maxLength={6}
-                    required
-                    placeholder="123456"
-                    value={securityPin}
-                    onChange={(e) => setSecurityPin(e.target.value.replace(/\D/g, ''))}
-                    className="w-full bg-transparent text-xs text-white outline-none font-mono"
-                  />
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Se te solicitará este PIN cada vez que inicies sesión desde un nuevo dispositivo o quieras autorizar a alguien.
-                </p>
-              </div>
-            )}
 
-            {/* Parental Control Option for minors under 13 */}
-            {isRegister && (
-              <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-500/30 space-y-1.5">
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isMinorAccount}
-                    onChange={(e) => setIsMinorAccount(e.target.checked)}
-                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-slate-800 border-slate-700 cursor-pointer"
-                  />
-                  <span className="text-xs font-bold text-purple-200">
-                    Esta cuenta es para un menor de 13 años (Control Parental)
-                  </span>
-                </label>
-                {isMinorAccount && (
-                  <p className="text-[10px] text-purple-300 leading-relaxed pl-6">
-                    Se activará la protección familiar. Se generará un código único (ej. FAM-XXXX) para que el padre, madre o tutor configure los permisos (videollamadas, contactos permitidos y límites) desde su propia cuenta.
-                  </p>
+                {/* Business Specific Details */}
+                {accountType === 'business' && (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-3">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-300">
+                      <Briefcase className="w-4 h-4 text-amber-400" />
+                      <span>Configuración Comercial para Empresas</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                      <div>
+                        <label className="text-[11px] text-slate-300 block mb-1">Categoría</label>
+                        <select
+                          value={companyCategory}
+                          onChange={(e) => setCompanyCategory(e.target.value)}
+                          className="w-full p-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:outline-none"
+                        >
+                          <option value="Servicios y Comercio">Servicios y Comercio</option>
+                          <option value="Tienda y Retail">Tienda y Retail</option>
+                          <option value="Tecnología y Software">Tecnología y Software</option>
+                          <option value="Restaurante y Alimentos">Restaurante y Alimentos</option>
+                          <option value="Salud y Belleza">Salud y Belleza</option>
+                          <option value="Consultoría y Legal">Consultoría y Legal</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-slate-300 block mb-1">Horario de Atención</label>
+                        <input
+                          type="text"
+                          value={businessHours}
+                          onChange={(e) => setBusinessHours(e.target.value)}
+                          placeholder="Lun - Vie: 09:00 - 18:00"
+                          className="w-full p-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 )}
-              </div>
+
+                {/* Password & Security PIN */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-300">Contraseña</label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full px-3 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
+                      <span>PIN de Seguridad (2FA)</span>
+                      <span className="text-[10px] text-emerald-400">4-6 dígitos</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPin ? 'text' : 'password'}
+                        maxLength={6}
+                        value={securityPin}
+                        onChange={(e) => setSecurityPin(e.target.value.replace(/[^0-9]/g, ''))}
+                        placeholder="1234"
+                        className="w-full px-3 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none font-mono"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-cyan-600 to-emerald-600 hover:opacity-95 text-white font-bold text-xs shadow-lg shadow-blue-500/20 transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {isLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>{accountType === 'business' ? 'Registrar Empresa en Nexus' : 'Registrar Cuenta Personal'}</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
             )}
+          </div>
+        )}
 
-            {/* Security badge note */}
-            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-400">
-              <ShieldCheck className="w-4 h-4 shrink-0" />
-              <span>Protección contra duplicados y claves E2EE generadas localmente.</span>
-            </div>
-
-            {errorMsg && <p className="text-xs text-rose-400 font-medium">{errorMsg}</p>}
-
-            <button
-              id="btn-auth-submit"
-              type="submit"
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all cursor-pointer"
-            >
-              <span>
-                {isLoading
-                  ? 'Procesando...'
-                  : isRegister
-                  ? 'Crear Cuenta y Proteger Datos'
-                  : 'Iniciar Sesión'}
-              </span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-        </>
-      )}
-
-      {/* Feature Footnotes */}
-      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80 text-center">
-        <div className="flex flex-col items-center gap-1">
-          <ShieldCheck className="w-4 h-4 text-blue-400" />
-          <span className="text-[10px] text-slate-400">Anti-Duplicados</span>
-        </div>
-        <div className="flex flex-col items-center gap-1">
-          <Briefcase className="w-4 h-4 text-indigo-400" />
-          <span className="text-[10px] text-slate-400">Workspace Hub</span>
-        </div>
-        <div className="flex flex-col items-center gap-1">
-          <KeyRound className="w-4 h-4 text-emerald-400" />
-          <span className="text-[10px] text-slate-400">PIN 2FA</span>
+        {/* Footer info: Privacy and Security */}
+        <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Cifrado E2EE nativo • Sin rastreadores • Privacidad de extremo a extremo</span>
         </div>
       </div>
-    </div>
-  );
-
-  if (isModal) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-        <div className="relative">
-          {onCloseModal && (
-            <button
-              onClick={onCloseModal}
-              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center border border-slate-700 z-10 cursor-pointer"
-            >
-              ✕
-            </button>
-          )}
-          {containerContent}
-        </div>
-      </div>
-    );
-  }
-
-  // Full Screen Standalone Landing & Onboarding
-  return (
-    <div
-      id="nexus-onboarding-screen"
-      className="min-h-screen w-full flex items-center justify-center p-4 bg-slate-950 bg-radial from-slate-900 to-slate-950"
-    >
-      {containerContent}
     </div>
   );
 };

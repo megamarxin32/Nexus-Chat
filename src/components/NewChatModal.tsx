@@ -97,7 +97,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
         adminIds: [currentUser.id],
         e2eeFingerprint: generateFingerprint(),
         meetActiveRoom: includeMeet
-          ? `https://meet.google.com/nex-${Math.random().toString(36).substring(2, 6)}-hub`
+          ? `https://nexus.chat/call/nex-${Math.random().toString(36).substring(2, 6)}-hub`
           : undefined,
         createdAt: new Date().toISOString(),
       };
@@ -165,7 +165,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
         members: [currentUser.id, acc.id],
         e2eeFingerprint: generateFingerprint(),
         meetActiveRoom: includeMeet
-          ? `https://meet.google.com/nex-${Math.random().toString(36).substring(2, 6)}-hub`
+          ? `https://nexus.chat/call/nex-${Math.random().toString(36).substring(2, 6)}-hub`
           : undefined,
         createdAt: new Date().toISOString(),
       };
@@ -204,7 +204,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
         members: [currentUser.id, newAcc.id],
         e2eeFingerprint: generateFingerprint(),
         meetActiveRoom: includeMeet
-          ? `https://meet.google.com/nex-${Math.random().toString(36).substring(2, 6)}-hub`
+          ? `https://nexus.chat/call/nex-${Math.random().toString(36).substring(2, 6)}-hub`
           : undefined,
         createdAt: new Date().toISOString(),
       };
@@ -272,13 +272,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Correo Electrónico o Usuario de Nexus
+                  Usuario (@usuario), Correo o Teléfono del Contacto
                 </label>
                 <div className="relative">
                   <input
                     id="input-contact-search"
                     type="text"
-                    placeholder="ej. valeria.rodriguez@gmail.com o @carlos_dev"
+                    placeholder="ej. @carlos_dev, valeria@mail.com o +525512345678"
                     value={targetUsername}
                     onChange={(e) => setTargetUsername(e.target.value)}
                     required
