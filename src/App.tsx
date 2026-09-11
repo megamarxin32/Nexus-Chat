@@ -18,7 +18,7 @@ import {
   PcMultiAccountModal,
   ChannelsAndStatusView,
   CommunitiesView,
-  ArcadeLoungeView,
+  NexusSpacesHub,
 } from './components';
 import {
   INITIAL_WORKSPACE_ITEMS,
@@ -177,10 +177,18 @@ export default function App() {
     isVideo: false,
   });
 
-  // Keep activeChatId pointing to a valid chat
+  // Keep activeChatId pointing to a valid chat on desktop; on mobile keep unselected on load so user lands on ChatList
   useEffect(() => {
-    if (chats.length > 0 && (!activeChatId || !chats.some((c) => c.id === activeChatId))) {
-      setActiveChatId(chats[0].id);
+    const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768;
+    if (isDesktop) {
+      if (chats.length > 0 && (!activeChatId || !chats.some((c) => c.id === activeChatId))) {
+        setActiveChatId(chats[0].id);
+      }
+    } else {
+      // On mobile, if activeChatId points to a non-existing chat, reset to empty string so user never gets stuck
+      if (activeChatId && !chats.some((c) => c.id === activeChatId)) {
+        setActiveChatId('');
+      }
     }
   }, [chats, activeChatId]);
 
@@ -420,7 +428,7 @@ export default function App() {
   }
 
   // Current active chat
-  const activeChat = chats.find((c) => c.id === activeChatId) || (chats.length > 0 ? chats[0] : null);
+  const activeChat = chats.find((c) => c.id === activeChatId) || null;
   const currentChatMessages = activeChat ? messages[activeChat.id] || [] : [];
 
   // Handle send message with E2EE encryption & data tracking
@@ -706,7 +714,7 @@ export default function App() {
   return (
     <div
       id="nexus-root-app-container"
-      className="flex h-screen w-screen overflow-hidden select-none font-sans transition-colors"
+      className="flex h-[100dvh] h-screen w-full max-w-full overflow-hidden select-none font-sans transition-colors"
       style={{
         backgroundColor: palette.appBg,
       }}
@@ -724,7 +732,7 @@ export default function App() {
         onOpenShareModal={() => setShowShareModal(true)}
         onOpenDevicesModal={() => setShowDevicesModal(true)}
         onOpenSettingsModal={() => {
-          setSettingsTab('chat');
+          setSettingsTab('appearance');
           setShowSettingsModal(true);
         }}
         onOpenProfileModal={() => {
@@ -743,7 +751,7 @@ export default function App() {
       />
 
       {/* 2. Main Content Split View */}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
+      <div className={`flex-1 flex flex-col overflow-hidden min-w-0 relative ${activeChatId && activeTab === 'chats' ? '' : 'pb-16 md:pb-0'}`}>
         {/* Top Status Bar: Cloud Sync & Multi-device indicator */}
         <div
           id="nexus-cloud-sync-bar"
@@ -808,29 +816,15 @@ export default function App() {
         )}
 
         <div className="flex-1 flex overflow-hidden min-w-0">
-          {activeTab === 'channels_status' ? (
-            /* Canales de Avisos & Estados 24h (WhatsApp / Instagram / Telegram) */
-            <ChannelsAndStatusView
+          {activeTab === 'spaces' || activeTab === 'channels_status' || activeTab === 'communities' ? (
+            /* Espacios Nexus: Canales de Avisos, Estados 24h & Comunidades de Voz */
+            <NexusSpacesHub
               currentUser={user}
               themeSettings={settings}
               chats={chats}
               onSendMessageToChat={handleSendMessageToChat}
-            />
-          ) : activeTab === 'communities' ? (
-            /* Comunidades & Servidores (WhatsApp Communities + Discord Servers) */
-            <CommunitiesView
-              currentUser={user}
-              themeSettings={settings}
               onStartVoiceCall={(channelName) => handleStartCall(false)}
-            />
-          ) : activeTab === 'arcade' ? (
-            /* Nexus Arcade Lounge (Trivia, Wordle, Conecta 4, Reflejos) */
-            <ArcadeLoungeView
-              currentUser={user}
-              chats={chats}
-              themeSettings={settings}
-              onSendMessageToChat={handleSendMessageToChat}
-              onNavigateToChat={handleNavigateToChat}
+              initialSubTab={activeTab === 'communities' ? 'communities' : 'channels_status'}
             />
           ) : activeTab === 'workspace' ? (
             /* Google Workspace Hub View */

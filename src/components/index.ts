@@ -16,4 +16,5 @@ export { CallHistoryView } from './CallHistoryView';
 export { PcMultiAccountModal } from './PcMultiAccountModal';
 export { ChannelsAndStatusView } from './ChannelsAndStatusView';
 export { CommunitiesView } from './CommunitiesView';
-export { ArcadeLoungeView } from './ArcadeLoungeView';
+export { NexusSpacesHub } from './NexusSpacesHub';
+export { StatusEditorModal } from './StatusEditorModal';

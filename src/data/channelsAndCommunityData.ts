@@ -1,146 +1,8 @@
 import { StatusStory, BroadcastChannel, CommunityServer } from '../types';
 
-export const INITIAL_STATUS_STORIES: StatusStory[] = [
-  {
-    id: 'story_1',
-    userId: 'usr_valeria',
-    userName: 'Valeria Martínez',
-    userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop&crop=face',
-    type: 'image',
-    content: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop',
-    caption: 'Atardecer inspirador en la playa 🌅 ¡Excelente energía para todos!',
-    timestamp: 'Hace 2 horas',
-    expiresAt: 'En 22 horas',
-    viewsCount: 34,
-  },
-  {
-    id: 'story_2',
-    userId: 'usr_carlos',
-    userName: 'Carlos Méndez',
-    userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
-    type: 'text',
-    content: '🚀 Lanzando la nueva versión de nuestro proyecto. ¡El cifrado E2EE y el rendimiento están volando! 💻⚡',
-    backgroundGradient: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
-    caption: 'Trabajando en lo nuevo',
-    timestamp: 'Hace 4 horas',
-    expiresAt: 'En 20 horas',
-    viewsCount: 52,
-  },
-  {
-    id: 'story_3',
-    userId: 'usr_sofia',
-    userName: 'Sofía Herrera',
-    userAvatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&h=150&fit=crop&crop=face',
-    type: 'image',
-    content: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800&auto=format&fit=crop',
-    caption: 'Almuerzo saludable para recargar pilas 🥗🥑',
-    timestamp: 'Hace 6 horas',
-    expiresAt: 'En 18 horas',
-    viewsCount: 29,
-  },
-  {
-    id: 'story_4',
-    userId: 'usr_marcos',
-    userName: 'Marcos Dev',
-    userAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop&crop=face',
-    type: 'text',
-    content: '🎮 ¿Quién se apunta a unas partidas en el Nexus Arcade hoy a las 8pm? ¡Torneo de Trivia y Conecta 4! 🏆',
-    backgroundGradient: 'linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)',
-    caption: 'Arcade Night',
-    timestamp: 'Hace 7 horas',
-    expiresAt: 'En 17 horas',
-    viewsCount: 48,
-  },
-];
+export const INITIAL_STATUS_STORIES: StatusStory[] = [];
 
-export const INITIAL_BROADCAST_CHANNELS: BroadcastChannel[] = [
-  {
-    id: 'chan_nexus_official',
-    name: 'Nexus Noticias & Alertas Oficial',
-    handle: '@nexus_official',
-    avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&h=150&fit=crop',
-    bannerUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1000&auto=format&fit=crop',
-    description: 'Canal oficial de novedades, actualizaciones de seguridad, torneos y nuevas funciones de Nexus.',
-    subscribersCount: 28450,
-    isVerified: true,
-    creatorId: 'sys_nexus',
-    creatorName: 'Equipo Nexus Core',
-    category: 'noticias',
-    isFollowing: true,
-    posts: [
-      {
-        id: 'post_nex_1',
-        channelId: 'chan_nexus_official',
-        title: '🌟 ¡Bienvenido a la Nueva Era de Nexus!',
-        text: 'Hemos unificado lo mejor de las plataformas de comunicación en un solo espacio:\n\n✨ Estados/Stories de 24 horas con respuestas directas.\n📢 Canales de Avisos oficiales con reacciones en vivo.\n🌐 Comunidades & Servidores con salas de voz y categorías.\n🎮 Nexus Arcade Lounge con minijuegos multijugador y retos.\n🔒 Cifrado E2EE reforzado y privacidad garantizada.',
-        imageUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop',
-        timestamp: 'Hoy a las 09:00',
-        reactions: { '❤️': 382, '🔥': 295, '🚀': 410, '👏': 188 },
-        userReacted: { '🚀': true },
-        views: 12400,
-        isPinned: true,
-      },
-      {
-        id: 'post_nex_2',
-        channelId: 'chan_nexus_official',
-        title: '⚡ Torneo de Trivia en Nexus Arcade',
-        text: '¡Demuestra tus conocimientos en el Arcade Lounge! Ya puedes retar a tus amigos o jugar en solitario a Nexus Trivia, Palabra Secreta y Conecta 4.',
-        timestamp: 'Ayer a las 18:30',
-        reactions: { '🎮': 194, '🏆': 142, '🔥': 203 },
-        views: 8900,
-      },
-    ],
-  },
-  {
-    id: 'chan_tech_radar',
-    name: 'Tech & AI Radar',
-    handle: '@techradar_hub',
-    avatar: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=150&h=150&fit=crop',
-    description: 'Avances en inteligencia artificial, gadgets, programación e innovación tecnológica global.',
-    subscribersCount: 15200,
-    isVerified: true,
-    creatorId: 'usr_carlos',
-    creatorName: 'Tech Innovators',
-    category: 'tecnologia',
-    isFollowing: true,
-    posts: [
-      {
-        id: 'post_tech_1',
-        channelId: 'chan_tech_radar',
-        title: '🤖 Modelos de IA ultra-rápidos en el navegador',
-        text: 'Las nuevas optimizaciones permiten inferencias locales con cero latencia y total respeto a la privacidad del usuario sin enviar datos a servidores externos.',
-        imageUrl: 'https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=800&auto=format&fit=crop',
-        timestamp: 'Hoy a las 08:15',
-        reactions: { '💡': 145, '🚀': 210, '👍': 98 },
-        views: 6420,
-      },
-    ],
-  },
-  {
-    id: 'chan_gaming_esports',
-    name: 'Gaming & Esports Central',
-    handle: '@nexus_gamers',
-    avatar: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=150&h=150&fit=crop',
-    description: 'Comunidad de gamers, noticias de lanzamientos, streams, torneos y trucos.',
-    subscribersCount: 19800,
-    isVerified: false,
-    creatorId: 'usr_marcos',
-    creatorName: 'Nexus Gaming Squad',
-    category: 'gaming',
-    isFollowing: false,
-    posts: [
-      {
-        id: 'post_game_1',
-        channelId: 'chan_gaming_esports',
-        title: '🕹️ Sala de Juegos Comunitaria Abierta',
-        text: 'Únete a nuestra sala de voz en el servidor Gaming Zone para coordinar partidas en tiempo real. ¡Hay premios para los récords en Trivia!',
-        timestamp: 'Hace 3 horas',
-        reactions: { '🔥': 89, '🎮': 156, '❤️': 67 },
-        views: 4300,
-      },
-    ],
-  },
-];
+export const INITIAL_BROADCAST_CHANNELS: BroadcastChannel[] = [];
 
 export const INITIAL_COMMUNITY_SERVERS: CommunityServer[] = [
   {
@@ -148,8 +10,8 @@ export const INITIAL_COMMUNITY_SERVERS: CommunityServer[] = [
     name: 'Nexus Gaming & Esports Zone',
     icon: '🎮',
     bannerUrl: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1000&auto=format&fit=crop',
-    description: 'Servidor dedicado a videojuegos, torneos comunitarios, streaming y charlas de voz.',
-    ownerId: 'usr_marcos',
+    description: 'Servidor dedicado a videojuegos, streaming, squads competitivos y salas de voz en vivo.',
+    ownerId: 'usr_community_lead',
     categories: [
       {
         id: 'cat_bienvenida',
@@ -165,7 +27,6 @@ export const INITIAL_COMMUNITY_SERVERS: CommunityServer[] = [
         channels: [
           { id: 'chan_gam_general', name: 'chat-general-gamer', type: 'text', topic: 'Conversaciones de gaming, memes y setups' },
           { id: 'chan_gam_clips', name: 'clips-y-capturas', type: 'text', topic: 'Comparte tus mejores momentos y jugadas' },
-          { id: 'chan_gam_arcade', name: 'arcade-desafíos', type: 'text', topic: 'Partidas y records de Nexus Arcade' },
         ],
       },
       {
@@ -173,30 +34,19 @@ export const INITIAL_COMMUNITY_SERVERS: CommunityServer[] = [
         name: '🔊 SALAS DE VOZ & SQUADS',
         channels: [
           { id: 'voice_gam_squad1', name: 'Squad Alfa (Voz)', type: 'voice', topic: 'Voz activa para partidas en equipo' },
-          { id: 'voice_gam_chill', name: 'Charla Tranquila (Voz)', type: 'voice', topic: 'Conversaciones casuales de gaming' },
+          { id: 'voice_gam_chill', name: 'Charla Casual (Voz)', type: 'voice', topic: 'Conversaciones casuales de gaming' },
         ],
       },
     ],
-    activeVoiceMembers: {
-      'voice_gam_squad1': [
-        { id: 'usr_carlos', name: 'Carlos M.', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face', isMuted: false, isSpeaking: true },
-        { id: 'usr_marcos', name: 'Marcos Dev', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop&crop=face', isMuted: true, isSpeaking: false },
-      ],
-    },
-    members: [
-      { id: 'usr_marcos', name: 'Marcos Dev', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop&crop=face', role: 'owner', status: 'online', activity: '🎮 Jugando a Cyberpunk 2077' },
-      { id: 'usr_carlos', name: 'Carlos Méndez', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face', role: 'admin', status: 'online', activity: '🔊 En Squad Alfa' },
-      { id: 'usr_valeria', name: 'Valeria Martínez', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop&crop=face', role: 'vip', status: 'online', activity: '🎧 Escuchando Synthwave' },
-      { id: 'usr_sofia', name: 'Sofía Herrera', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&h=150&fit=crop&crop=face', role: 'member', status: 'idle', activity: '☕ En receso' },
-    ],
+    members: [],
   },
   {
     id: 'srv_tech_builders',
     name: 'Tech & Developers Global Hub',
     icon: '🚀',
     bannerUrl: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1000&auto=format&fit=crop',
-    description: 'Comunidad de programadores, arquitectos de software, diseñadores UI/UX y creadores tech.',
-    ownerId: 'usr_carlos',
+    description: 'Comunidad de desarrolladores de software, arquitectura en la nube, diseño y proyectos open source.',
+    ownerId: 'usr_community_lead',
     categories: [
       {
         id: 'cat_tech_main',
@@ -216,14 +66,6 @@ export const INITIAL_COMMUNITY_SERVERS: CommunityServer[] = [
         ],
       },
     ],
-    activeVoiceMembers: {
-      'voice_tech_cowork': [
-        { id: 'usr_valeria', name: 'Valeria M.', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop&crop=face', isMuted: true, isSpeaking: false },
-      ],
-    },
-    members: [
-      { id: 'usr_carlos', name: 'Carlos Méndez', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face', role: 'owner', status: 'online', activity: '💻 Codeando en Nexus' },
-      { id: 'usr_valeria', name: 'Valeria Martínez', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop&crop=face', role: 'moderator', status: 'online', activity: '🎨 Diseñando interfaces' },
-    ],
+    members: [],
   },
 ];

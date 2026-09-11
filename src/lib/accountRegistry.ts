@@ -46,8 +46,20 @@ class AccountRegistry {
     if (a.id && FAKE_ACCOUNT_IDS.has(a.id)) return true;
     if (a.username && FAKE_USERNAMES.has(a.username.toLowerCase())) return true;
     const name = (a.displayName || '').toLowerCase();
-    if (name.includes('soporte') || name.includes('valeria') || name.includes('carlos')) {
-      if (a.email?.includes('nexus.chat') || a.id?.startsWith('usr_valeria') || a.id?.startsWith('usr_carlos')) {
+    const uname = (a.username || '').toLowerCase();
+    const email = (a.email || '').toLowerCase();
+    if (
+      uname.includes('soporte') ||
+      uname.includes('support') ||
+      name.includes('soporte') ||
+      name.includes('support') ||
+      email.includes('soporte') ||
+      email.includes('support')
+    ) {
+      return true;
+    }
+    if (name.includes('valeria') || name.includes('carlos')) {
+      if (email.includes('nexus.chat') || a.id?.startsWith('usr_valeria') || a.id?.startsWith('usr_carlos')) {
         return true;
       }
     }

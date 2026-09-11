@@ -137,21 +137,25 @@ export interface Message {
   poll?: ChatPoll;
 }
 
-export type AppTab = 'chats' | 'channels_status' | 'communities' | 'arcade' | 'workspace' | 'calls';
+export type AppTab = 'chats' | 'spaces' | 'workspace' | 'calls' | 'channels_status' | 'communities';
 
 export interface StatusStory {
   id: string;
   userId: string;
   userName: string;
   userAvatar: string;
-  type: 'text' | 'image';
-  content: string; // text body or image data/url
+  type: 'text' | 'image' | 'video';
+  content: string; // text body, image data/url, or video data/url
   backgroundGradient?: string;
+  filter?: string;
   timestamp: string;
   expiresAt: string;
   viewsCount: number;
   caption?: string;
   isSelf?: boolean;
+  visibility?: 'contacts' | 'all';
+  allowedViewerIds?: string[];
+  isMuted?: boolean;
 }
 
 export interface BroadcastChannelPost {

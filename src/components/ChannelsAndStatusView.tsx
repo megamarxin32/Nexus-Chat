@@ -22,10 +22,14 @@ import {
   MessageCircle,
   Clock,
   Pin,
+  ShieldCheck,
+  Lock,
+  Video as VideoIcon,
 } from 'lucide-react';
 import { StatusStory, BroadcastChannel, BroadcastChannelPost, UserProfile, ThemeSettings, Chat } from '../types';
 import { INITIAL_STATUS_STORIES, INITIAL_BROADCAST_CHANNELS } from '../data/channelsAndCommunityData';
 import { getThemePalette } from '../lib/themePresets';
+import { StatusEditorModal } from './StatusEditorModal';
 
 interface ChannelsAndStatusViewProps {
   currentUser: UserProfile | null;
@@ -44,31 +48,75 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
 }) => {
   const palette = getThemePalette(themeSettings);
 
-  // Stories State
+  // Stories State - Clean out sample stories
   const [stories, setStories] = useState<StatusStory[]>(() => {
     const saved = localStorage.getItem('nexus_status_stories');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          // Remove default example stories (story_1, story_2, story_3, story_4, or from fake users)
+          return parsed.filter((s: StatusStory) =>
+            !['story_1', 'story_2', 'story_3', 'story_4'].includes(s.id) &&
+            !['usr_valeria', 'usr_carlos', 'usr_sofia', 'usr_marcos', 'usr_soporte'].includes(s.userId)
+          );
+        }
       } catch {
-        return INITIAL_STATUS_STORIES;
+        return [];
       }
     }
-    return INITIAL_STATUS_STORIES;
+    return [];
   });
 
-  // Broadcast Channels State
+  // Broadcast Channels State - Clean out demo channels
   const [channels, setChannels] = useState<BroadcastChannel[]>(() => {
     const saved = localStorage.getItem('nexus_broadcast_channels');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((c: BroadcastChannel) =>
+            !['chan_nexus_official', 'chan_tech_radar', 'chan_gaming_esports'].includes(c.id)
+          );
+        }
       } catch {
-        return INITIAL_BROADCAST_CHANNELS;
+        return [];
       }
     }
-    return INITIAL_BROADCAST_CHANNELS;
+    return [];
   });
+
+  // Set of contact/friend user IDs from active direct chats
+  const contactUserIds = React.useMemo(() => {
+    const set = new Set<string>();
+    if (currentUser) {
+      set.add(currentUser.id);
+      chats.forEach((c) => {
+        if (c.type === 'direct' && Array.isArray(c.members)) {
+          c.members.forEach((mId) => {
+            if (mId && mId !== currentUser.id) {
+              set.add(mId);
+            }
+          });
+        }
+      });
+    }
+    return set;
+  }, [chats, currentUser?.id]);
+
+  // Restrict story visibility: ONLY own stories and stories from contacts/friends
+  const visibleStories = React.useMemo(() => {
+    if (!currentUser) return [];
+    return stories.filter((s) => {
+      // 1. Own story
+      if (s.userId === currentUser.id) return true;
+      // 2. Direct contact / friend
+      if (contactUserIds.has(s.userId)) return true;
+      // 3. Specifically authorized
+      if (Array.isArray(s.allowedViewerIds) && s.allowedViewerIds.includes(currentUser.id)) return true;
+      return false;
+    });
+  }, [stories, currentUser, contactUserIds]);
 
   useEffect(() => {
     localStorage.setItem('nexus_status_stories', JSON.stringify(stories));
@@ -83,14 +131,10 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
   const [storyProgress, setStoryProgress] = useState<number>(0);
   const [replyText, setReplyText] = useState<string>('');
   const [replySentSuccess, setReplySentSuccess] = useState<boolean>(false);
+  const [isStoryAudioMuted, setIsStoryAudioMuted] = useState<boolean>(false);
 
   // New Story Modal State
   const [isCreatingStory, setIsCreatingStory] = useState<boolean>(false);
-  const [newStoryText, setNewStoryText] = useState<string>('');
-  const [newStoryCaption, setNewStoryCaption] = useState<string>('');
-  const [newStoryGradient, setNewStoryGradient] = useState<string>('linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)');
-  const [newStoryImageUrl, setNewStoryImageUrl] = useState<string>('');
-  const [newStoryType, setNewStoryType] = useState<'text' | 'image'>('text');
 
   // Channel Category Filter
   const [selectedCategory, setSelectedCategory] = useState<string>('todos');
@@ -115,7 +159,7 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
       setStoryProgress((prev) => {
         if (prev >= 100) {
           // Advance to next story or close
-          if (activeStoryIndex < stories.length - 1) {
+          if (activeStoryIndex < visibleStories.length - 1) {
             setActiveStoryIndex((curr) => (curr !== null ? curr + 1 : null));
             return 0;
           } else {
@@ -128,11 +172,11 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
     }, 100);
 
     return () => clearInterval(interval);
-  }, [activeStoryIndex, stories.length]);
+  }, [activeStoryIndex, visibleStories.length]);
 
   const handleNextStory = () => {
     if (activeStoryIndex === null) return;
-    if (activeStoryIndex < stories.length - 1) {
+    if (activeStoryIndex < visibleStories.length - 1) {
       setActiveStoryIndex(activeStoryIndex + 1);
       setStoryProgress(0);
     } else {
@@ -146,33 +190,6 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
       setActiveStoryIndex(activeStoryIndex - 1);
       setStoryProgress(0);
     }
-  };
-
-  const handlePublishStory = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newStoryText.trim() && newStoryType === 'text') return;
-    if (!newStoryImageUrl.trim() && newStoryType === 'image') return;
-
-    const newStory: StatusStory = {
-      id: 'story_' + Date.now(),
-      userId: currentUser?.id || 'usr_me',
-      userName: currentUser?.displayName || 'Tú',
-      userAvatar: currentUser?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-      type: newStoryType,
-      content: newStoryType === 'text' ? newStoryText.trim() : newStoryImageUrl.trim(),
-      backgroundGradient: newStoryType === 'text' ? newStoryGradient : undefined,
-      caption: newStoryCaption.trim() || undefined,
-      timestamp: 'Justo ahora',
-      expiresAt: 'En 24 horas',
-      viewsCount: 1,
-      isSelf: true,
-    };
-
-    setStories([newStory, ...stories]);
-    setIsCreatingStory(false);
-    setNewStoryText('');
-    setNewStoryCaption('');
-    setNewStoryImageUrl('');
   };
 
   const handleReplyToStory = (story: StatusStory) => {
@@ -282,7 +299,7 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
     return matchesTab && matchesCat && matchesQuery;
   });
 
-  const activeStory = activeStoryIndex !== null ? stories[activeStoryIndex] : null;
+  const activeStory = activeStoryIndex !== null ? visibleStories[activeStoryIndex] : null;
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-y-auto bg-slate-950 text-slate-100">
@@ -302,7 +319,7 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
                   </span>
                 </h1>
                 <p className="text-xs text-slate-400">
-                  Historias efímeras de 24h y avisos oficiales de difusión sin límites
+                  Historias efímeras de 24h cifradas para contactos y avisos oficiales de difusión
                 </p>
               </div>
             </div>
@@ -335,7 +352,10 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
               <Sparkles className="w-4 h-4 text-amber-400" />
               Estados de Contactos (24 Horas)
             </h2>
-            <span className="text-xs text-slate-500">{stories.length} estados activos</span>
+            <span className="text-xs text-slate-400 flex items-center gap-1.5">
+              <Lock className="w-3 h-3 text-emerald-400" />
+              {visibleStories.length} de tus contactos
+            </span>
           </div>
 
           <div className="flex items-center gap-3 overflow-x-auto pb-3 pt-1 scrollbar-thin scrollbar-thumb-slate-800">
@@ -360,7 +380,7 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
             </div>
 
             {/* Contact Stories */}
-            {stories.map((story, idx) => (
+            {visibleStories.map((story, idx) => (
               <div
                 key={story.id}
                 onClick={() => setActiveStoryIndex(idx)}
@@ -375,8 +395,13 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
                     />
                   </div>
                   {story.type === 'text' && (
-                    <span className="absolute bottom-0 right-0 w-5 h-5 rounded-full bg-indigo-600 text-[10px] flex items-center justify-center font-bold border border-slate-900">
+                    <span className="absolute bottom-0 right-0 w-5 h-5 rounded-full bg-indigo-600 text-[10px] flex items-center justify-center font-bold border border-slate-900 text-white">
                       T
+                    </span>
+                  )}
+                  {story.type === 'video' && (
+                    <span className="absolute bottom-0 right-0 w-5 h-5 rounded-full bg-cyan-600 text-[10px] flex items-center justify-center font-bold border border-slate-900 text-white shadow-sm">
+                      <VideoIcon className="w-2.5 h-2.5" />
                     </span>
                   )}
                 </div>
@@ -385,6 +410,13 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
                 </span>
               </div>
             ))}
+
+            {visibleStories.length === 0 && (
+              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-slate-900/60 border border-slate-800 text-xs text-slate-400 shrink-0">
+                <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Privacidad activa: Solo tus contactos y amigos registrados en tus chats pueden ver tus estados.</span>
+              </div>
+            )}
           </div>
         </section>
 
@@ -605,6 +637,16 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
+                {activeStory.type === 'video' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsStoryAudioMuted((prev) => !prev)}
+                    className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+                    title={isStoryAudioMuted ? 'Activar sonido' : 'Silenciar sonido'}
+                  >
+                    {isStoryAudioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  </button>
+                )}
                 <button
                   onClick={() => setActiveStoryIndex(null)}
                   className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white cursor-pointer"
@@ -631,12 +673,34 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
                   </span>
                 )}
               </div>
+            ) : activeStory.type === 'video' ? (
+              <div className="relative w-full h-full flex items-center justify-center bg-black">
+                <video
+                  src={activeStory.content}
+                  autoPlay
+                  playsInline
+                  loop
+                  muted={isStoryAudioMuted}
+                  className="w-full h-full object-contain"
+                  style={{
+                    filter: activeStory.filter || undefined,
+                  }}
+                />
+                {activeStory.caption && (
+                  <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent text-white text-center">
+                    <p className="text-sm font-medium">{activeStory.caption}</p>
+                  </div>
+                )}
+              </div>
             ) : (
-              <div className="relative w-full h-full">
+              <div className="relative w-full h-full flex items-center justify-center bg-black">
                 <img
                   src={activeStory.content}
                   alt="Story Visual"
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
+                  style={{
+                    filter: activeStory.filter || undefined,
+                  }}
                 />
                 {activeStory.caption && (
                   <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent text-white text-center">
@@ -688,135 +752,16 @@ export const ChannelsAndStatusView: React.FC<ChannelsAndStatusViewProps> = ({
         </div>
       )}
 
-      {/* 5. Create Story Modal */}
+      {/* 5. Create Story Modal with Integrated Photo/Video Editor */}
       {isCreatingStory && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h3 className="font-bold text-white text-base flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-400" />
-                Nuevo Estado (24 Horas)
-              </h3>
-              <button
-                onClick={() => setIsCreatingStory(false)}
-                className="p-1 text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setNewStoryType('text')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition-all ${
-                  newStoryType === 'text'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-400'
-                }`}
-              >
-                Texto & Color
-              </button>
-              <button
-                type="button"
-                onClick={() => setNewStoryType('image')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition-all ${
-                  newStoryType === 'image'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-400'
-                }`}
-              >
-                Foto / Imagen
-              </button>
-            </div>
-
-            <form onSubmit={handlePublishStory} className="space-y-4">
-              {newStoryType === 'text' ? (
-                <>
-                  <div
-                    className="rounded-2xl p-6 min-h-[140px] flex items-center justify-center text-center shadow-inner"
-                    style={{ background: newStoryGradient }}
-                  >
-                    <textarea
-                      placeholder="Escribe lo que estás pensando hoy..."
-                      value={newStoryText}
-                      onChange={(e) => setNewStoryText(e.target.value)}
-                      rows={3}
-                      className="w-full bg-transparent text-white font-bold text-lg text-center placeholder-white/60 focus:outline-none resize-none"
-                    />
-                  </div>
-
-                  {/* Gradient Selector */}
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-semibold text-slate-400">Color de fondo:</label>
-                    <div className="flex items-center gap-2">
-                      {[
-                        'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
-                        'linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)',
-                        'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-                        'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)',
-                        'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-                      ].map((grad, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => setNewStoryGradient(grad)}
-                          className={`w-7 h-7 rounded-full transition-transform ${
-                            newStoryGradient === grad ? 'scale-110 ring-2 ring-white' : 'opacity-80'
-                          }`}
-                          style={{ background: grad }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs text-slate-300 font-semibold mb-1 block">
-                      Enlace de imagen o foto:
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="https://images.unsplash.com/..."
-                      value={newStoryImageUrl}
-                      onChange={(e) => setNewStoryImageUrl(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-300 font-semibold mb-1 block">
-                      Pie de foto / Pie de historia:
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Un momento genial..."
-                      value={newStoryCaption}
-                      onChange={(e) => setNewStoryCaption(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsCreatingStory(false)}
-                  className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md cursor-pointer"
-                >
-                  Publicar Ahora
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <StatusEditorModal
+          currentUser={currentUser}
+          contactUserIds={contactUserIds}
+          onClose={() => setIsCreatingStory(false)}
+          onPublishStory={(newStory) => {
+            setStories([newStory, ...stories]);
+          }}
+        />
       )}
 
       {/* 6. Create Broadcast Channel Modal */}
